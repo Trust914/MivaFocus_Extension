@@ -8,10 +8,10 @@ on:
   # Allow manual trigger
   workflow_dispatch:
   
-  # Run on push to main (for testing)
+  # Run on push to master (for testing)
   push:
     branches:
-      - main
+      - master
     paths:
       - 'scrape_courses.py'
       - 'auto_update.py'
@@ -91,4 +91,3 @@ jobs:
         if: failure()
         run: |
           echo "Course update failed! Check logs."
-          # Add notification service here (email, Slack, etc.)
