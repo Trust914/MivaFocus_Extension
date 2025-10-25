@@ -170,7 +170,7 @@ class MivaCourseScraper:
                     level_match = re.search(r'\b([12345])00\s*level\b', title_text, re.IGNORECASE)
                     
                     if level_match:
-                        level = f"{level_match.group(1)}00"
+                        level = f"{level_match.group(1)}00_Level"
                         content_div = accordion.find('div', class_=re.compile(r'elementor-tab-content'))
                         
                         if content_div:
@@ -213,17 +213,16 @@ class MivaCourseScraper:
     
     def _detect_table_semester(self, table, table_index: int) -> Optional[str]:
         """Detect which semester a table belongs to"""
-        
+        sem_string = 'semester'
         # Check HTML comments before table
         for sibling in table.previous_siblings:
             if hasattr(sibling, 'string') and sibling.string:
                 comment_text = sibling.string.strip().lower()
                 if '1st semester' in comment_text or 'first semester' in comment_text:
-                    return 'first'
+                    return f'first_{sem_string}'
                 elif '2nd semester' in comment_text or 'second semester' in comment_text:
-                    return 'second'
-                elif 'rain semester' in comment_text:
-                    return 'rain'
+                    return f'second_{sem_string}'
+
         
         # Check table header
         thead = table.find('thead')
@@ -231,25 +230,22 @@ class MivaCourseScraper:
             for th in thead.find_all('th'):
                 th_text = th.get_text(strip=True).lower()
                 if '1st semester' in th_text or 'first semester' in th_text:
-                    return 'first'
+                    return f'first_{sem_string}'
                 elif '2nd semester' in th_text or 'second semester' in th_text:
-                    return 'second'
-                elif 'rain semester' in th_text:
-                    return 'rain'
+                    return f'second_{sem_string}'
         
         # Check first row
         first_row = table.find('tr')
         if first_row:
             row_text = first_row.get_text(strip=True).lower()
             if '1st semester' in row_text or 'first semester' in row_text:
-                return 'first'
+                return f'first_{sem_string}'
             elif '2nd semester' in row_text or 'second semester' in row_text:
-                return 'second'
-            elif 'rain semester' in row_text:
-                return 'rain'
+                return f'second_{sem_string}'
+
         
         # Fallback to table position
-        return 'first' if table_index == 0 else 'second' if table_index == 1 else None
+        return f'first_{sem_string}' if table_index == 0 else f'second_{sem_string}' if table_index == 1 else None
     
     def _parse_table_courses(self, table) -> List[Dict]:
         """Parse course information from table rows"""
