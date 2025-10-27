@@ -1,35 +1,24 @@
-/**
- * MivaFocus Popup Script
- * Handles onboarding (department selection only) and global filter toggle
- * Filter controls (level/semester) are now on the LMS page
- */
-
 class MivaFocusPopup {
   constructor() {
     this.userSettings = {};
     this.courseDB = null;
-    this.departmentCourses = null;
-    this.cacheKey = 'courseDBCache';
+    this.cacheKey = "courseDBCache";
     this.cacheExpiry = 7 * 24 * 60 * 60 * 1000; // 7 days
-    this.githubRawUrl = 'https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/courses_database.json';
-    this.lmsDomain = 'lms.miva.university';
+    this.githubRawUrl =
+      "https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/courses_database.json";
+    this.lmsDomain = "lms.miva.university";
     this.init();
   }
 
   async init() {
-    try {
-      await this.loadSettings();
-      await this.loadAndCacheDB();
-      this.renderUI();
-      this.attachListeners();
-    } catch (error) {
-      console.error('[MivaFocus Popup] Init error:', error);
-      this.showError('Failed to initialize. Please try again.');
-    }
+    await this.loadSettings();
+    await this.loadAndCacheDB();
+    this.renderUI();
+    this.attachListeners();
   }
 
   async loadSettings() {
-    const result = await chrome.storage.sync.get('userSettings');
+    const result = await chrome.storage.sync.get("userSettings");
     this.userSettings = result.userSettings || {};
   }
 
@@ -38,291 +27,150 @@ class MivaFocusPopup {
   }
 
   async loadAndCacheDB() {
+    const cached = await chrome.storage.local.get(this.cacheKey);
+    const now = Date.now();
+
+    if (
+      cached[this.cacheKey] &&
+      now - cached[this.cacheKey].timestamp < this.cacheExpiry
+    ) {
+      this.courseDB = cached[this.cacheKey].data;
+      return;
+    }
+
     try {
-      const cached = await chrome.storage.local.get(this.cacheKey);
-      const now = Date.now();
-
-      if (cached[this.cacheKey] && 
-          cached[this.cacheKey].data && 
-          cached[this.cacheKey].timestamp &&
-          (now - cached[this.cacheKey].timestamp) < this.cacheExpiry) {
-        this.courseDB = cached[this.cacheKey].data;
-        console.log('[MivaFocus Popup] Using cached DB');
-        return;
-      }
-
-      console.log('[MivaFocus Popup] Fetching fresh DB...');
       this.showLoading();
-      
       const response = await fetch(this.githubRawUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: Failed to fetch DB`);
-      }
-      
+      if (!response.ok) throw new Error("Failed to fetch database");
       this.courseDB = await response.json();
-
-      if (!this.courseDB || !this.courseDB.departments) {
-        throw new Error('Invalid database structure');
-      }
-
       await chrome.storage.local.set({
-        [this.cacheKey]: { 
-          data: this.courseDB, 
-          timestamp: now 
-        }
+        [this.cacheKey]: { data: this.courseDB, timestamp: now },
       });
-      console.log('[MivaFocus Popup] DB fetched and cached');
-    } catch (error) {
-      console.error('[MivaFocus Popup] DB load error:', error);
-      this.showError('Failed to load course database. Please check your connection.');
-      this.courseDB = null;
+    } catch (err) {
+      this.showError("Could not load departments. Check your internet.");
+    } finally {
+      this.hideLoading();
     }
   }
 
   populateDepartments() {
-    const select = document.getElementById('department');
-    if (!select) return;
-    
+    const select = document.getElementById("department");
+    if (!this.courseDB?.departments) return;
+
     select.innerHTML = '<option value="">Select Department</option>';
+    const entries = Object.entries(this.courseDB.departments).sort((a, b) =>
+      a[1].name.localeCompare(b[1].name)
+    );
 
-    if (!this.courseDB || !this.courseDB.departments) {
-      console.error('[MivaFocus Popup] No departments available');
-      this.showError('Course database not loaded');
-      return;
-    }
-
-    const deptEntries = Object.entries(this.courseDB.departments)
-      .sort((a, b) => a[1].name.localeCompare(b[1].name));
-
-    deptEntries.forEach(([code, data]) => {
-      const option = document.createElement('option');
-      option.value = code;
-      option.textContent = `${data.name} (${code})`;
-      select.appendChild(option);
-    });
-  }
-
-  showError(message) {
-    const errorEl = document.getElementById('error');
-    const loadingEl = document.getElementById('loading');
-    if (errorEl) {
-      errorEl.textContent = message;
-      errorEl.classList.remove('hidden');
-    }
-    if (loadingEl) {
-      loadingEl.classList.add('hidden');
-    }
-  }
-
-  showLoading() {
-    const loadingEl = document.getElementById('loading');
-    const errorEl = document.getElementById('error');
-    if (loadingEl) {
-      loadingEl.classList.remove('hidden');
-    }
-    if (errorEl) {
-      errorEl.classList.add('hidden');
-    }
-  }
-
-  hideLoading() {
-    const loadingEl = document.getElementById('loading');
-    if (loadingEl) {
-      loadingEl.classList.add('hidden');
+    for (const [code, data] of entries) {
+      const opt = document.createElement("option");
+      opt.value = code;
+      opt.textContent = `${data.name} (${code})`;
+      select.appendChild(opt);
     }
   }
 
   renderUI() {
-    const onboarding = document.getElementById('onboarding');
-    const settings = document.getElementById('settings');
+    const onboarding = document.getElementById("onboarding");
+    const settings = document.getElementById("settings");
 
-    if (!onboarding || !settings) {
-      console.error('[MivaFocus Popup] Required DOM elements not found');
-      return;
-    }
-
-    // Show settings if department is already selected
     if (this.userSettings.department) {
-      onboarding.classList.add('hidden');
-      settings.classList.remove('hidden');
-
-      this.updateToggleButton();
+      onboarding.classList.add("hidden");
+      settings.classList.remove("hidden");
       this.displayCurrentSettings();
+      this.updateToggleButton();
     } else {
-      // Show onboarding for new users
-      settings.classList.add('hidden');
-      onboarding.classList.remove('hidden');
-
+      onboarding.classList.remove("hidden");
+      settings.classList.add("hidden");
       this.populateDepartments();
       this.hideLoading();
-
-      const deptSelect = document.getElementById('department');
-      if (deptSelect && this.userSettings.department) {
-        deptSelect.value = this.userSettings.department;
-      }
-
       this.toggleSaveButton();
     }
   }
 
   displayCurrentSettings() {
-    const currentSettingsEl = document.getElementById('currentSettings');
-    if (!currentSettingsEl) return;
+    const box = document.getElementById("currentSettings");
+    const dept = this.userSettings.department;
+    const name =
+      this.courseDB?.departments?.[dept]?.name || "Unknown Department";
 
-    const deptData = this.courseDB?.departments?.[this.userSettings.department];
-    const deptName = deptData ? deptData.name : this.userSettings.department;
-
-    currentSettingsEl.innerHTML = `
-      <div style="background: #f1f5f9; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
-        <p style="margin: 0 0 0.5rem 0; color: #64748b; font-size: 0.875rem;">Current Department</p>
-        <p style="margin: 0; font-weight: 600; color: #1e293b; font-size: 1.125rem;">
-          ${deptName}
-        </p>
-      </div>
+    box.innerHTML = `
+      <p style="opacity:0.8;">Current Department</p>
+      <p style="font-size:1.05rem;font-weight:600;">${name}</p>
     `;
   }
 
   updateToggleButton() {
-    const toggleBtn = document.getElementById('toggleGlobalFilter');
-    if (toggleBtn) {
-      const isEnabled = this.userSettings.filterEnabled;
-      toggleBtn.textContent = isEnabled ? 'Disable Filter' : 'Enable Filter';
-      toggleBtn.style.background = isEnabled ? '#ef4444' : '#3b82f6';
-    }
+    const btn = document.getElementById("toggleGlobalFilter");
+    const enabled = this.userSettings.filterEnabled;
+    btn.textContent = enabled ? "Disable Filter" : "Enable Filter";
+    btn.className = enabled ? "btn danger" : "btn secondary";
   }
 
   attachListeners() {
-    const deptSelect = document.getElementById('department');
-    const saveBtn = document.getElementById('saveSetup');
+    const select = document.getElementById("department");
+    const saveBtn = document.getElementById("saveSetup");
+    const toggleBtn = document.getElementById("toggleGlobalFilter");
+    const resetBtn = document.getElementById("resetSettings");
 
-    if (deptSelect) {
-      deptSelect.addEventListener('change', () => this.toggleSaveButton());
-    }
-    if (saveBtn) {
-      saveBtn.addEventListener('click', () => this.handleOnboarding());
-    }
-
-    const toggleBtn = document.getElementById('toggleGlobalFilter');
-    const resetBtn = document.getElementById('resetSettings');
-
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', () => this.toggleGlobalFilter());
-    }
-    if (resetBtn) {
-      resetBtn.addEventListener('click', () => this.resetSettings());
-    }
+    if (select) select.addEventListener("change", () => this.toggleSaveButton());
+    if (saveBtn) saveBtn.addEventListener("click", () => this.handleOnboarding());
+    if (toggleBtn) toggleBtn.addEventListener("click", () => this.toggleGlobalFilter());
+    if (resetBtn) resetBtn.addEventListener("click", () => this.resetSettings());
   }
 
   toggleSaveButton() {
-    const deptSelect = document.getElementById('department');
-    const saveBtn = document.getElementById('saveSetup');
-    
-    if (deptSelect && saveBtn) {
-      const dept = deptSelect.value;
-      saveBtn.disabled = !dept;
-    }
+    const select = document.getElementById("department");
+    const saveBtn = document.getElementById("saveSetup");
+    saveBtn.disabled = !select.value;
   }
 
   async handleOnboarding() {
-    const deptSelect = document.getElementById('department');
-    
-    if (!deptSelect) return;
+    const dept = document.getElementById("department").value;
+    if (!dept) return;
 
-    const department = deptSelect.value;
-
-    if (!department) {
-      this.showError('Please select a department');
-      return;
-    }
-
-    this.showLoading();
-
-    try {
-      // Save department only (no level required)
-      this.userSettings.department = department;
-      this.userSettings.onboardingComplete = true;
-      this.userSettings.filterEnabled = false; // Start with filter disabled
-      
-      await this.saveSettings();
-
-      // Store department courses for the content script
-      if (this.courseDB?.departments?.[department]?.courses) {
-        this.departmentCourses = {
-          department: department,
-          courses: this.courseDB.departments[department].courses
-        };
-        await chrome.storage.local.set({ departmentCourses: this.departmentCourses });
-        console.log('[MivaFocus Popup] Courses stored for', department);
-      } else {
-        console.warn('[MivaFocus Popup] No courses found for department:', department);
-      }
-
-      // Notify any open LMS tabs
-      await this.notifyLMSTabs('updateSettings', this.userSettings);
-
-      this.hideLoading();
-      this.renderUI();
-    } catch (error) {
-      console.error('[MivaFocus Popup] Onboarding error:', error);
-      this.showError('Failed to save settings. Please try again.');
-    }
+    this.userSettings = {
+      department: dept,
+      filterEnabled: false,
+    };
+    await this.saveSettings();
+    this.renderUI();
   }
 
   async toggleGlobalFilter() {
     this.userSettings.filterEnabled = !this.userSettings.filterEnabled;
     await this.saveSettings();
-
     this.updateToggleButton();
-
-    // Notify LMS tabs to update filter state
-    await this.notifyLMSTabs('updateSettings', {
-      filterEnabled: this.userSettings.filterEnabled
-    });
+    await this.notifyLMSTabs("updateSettings", this.userSettings);
   }
 
   async resetSettings() {
-    if (!confirm('Reset all settings? This will clear your department selection and you will need to set it up again.')) {
-      return;
-    }
-
-    try {
-      this.userSettings = {};
-      await chrome.storage.sync.clear();
-      await chrome.storage.local.remove(['departmentCourses']);
-      
-      // Notify LMS tabs
-      await this.notifyLMSTabs('resetSettings', {});
-      
-      this.renderUI();
-    } catch (error) {
-      console.error('[MivaFocus Popup] Reset error:', error);
-      this.showError('Failed to reset settings');
-    }
+    await chrome.storage.sync.clear();
+    await chrome.storage.local.remove(["departmentCourses"]);
+    this.userSettings = {};
+    this.renderUI();
   }
 
   async notifyLMSTabs(action, data) {
-    try {
-      const tabs = await chrome.tabs.query({});
-      const lmsTabs = tabs.filter(tab => 
-        tab.url && 
-        tab.url.includes(this.lmsDomain) &&
-        tab.status === 'complete'
-      );
+    const tabs = await chrome.tabs.query({});
+    const lmsTabs = tabs.filter((t) => t.url?.includes(this.lmsDomain));
+    for (const tab of lmsTabs)
+      chrome.tabs.sendMessage(tab.id, { action, settings: data });
+  }
 
-      if (lmsTabs.length === 0) {
-        return;
-      }
+  showLoading() {
+    document.getElementById("loading").classList.remove("hidden");
+    document.getElementById("error").classList.add("hidden");
+  }
 
-      for (const tab of lmsTabs) {
-        chrome.tabs.sendMessage(tab.id, { action, settings: data }, (response) => {
-          if (!chrome.runtime.lastError) {
-            console.log(`[MivaFocus Popup] Notified tab ${tab.id}`);
-          }
-        });
-      }
-    } catch (error) {
-      // Silent fail - tabs may not be ready
-    }
+  hideLoading() {
+    document.getElementById("loading").classList.add("hidden");
+  }
+
+  showError(msg) {
+    const el = document.getElementById("error");
+    el.textContent = msg;
+    el.classList.remove("hidden");
   }
 }
 
