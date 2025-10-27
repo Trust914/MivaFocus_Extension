@@ -1,229 +1,49 @@
-/**
- * MivaFocus Content Styles
- * Injected into Miva LMS pages
- */
-
 #mivafocus-control-bar {
   position: sticky;
   top: 0;
   left: 0;
   right: 0;
   z-index: 9999;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); */
   color: white;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   animation: slideDown 0.3s ease-out;
 }
 
-@keyframes slideDown {
-  from {
-    transform: translateY(-100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+
+/* Stats section */
+#mivafocus-stats {
+  font-size: 13px;
+  color: #94a3b8;
+  white-space: nowrap;
 }
 
-.mf-control-inner {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 12px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+/* Course container styles */
+.miva-course {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.miva-course.hidden {
+  opacity: 0.2;
+  transform: scale(0.98);
+  pointer-events: none;
+  filter: blur(1px);
 }
 
-.mf-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 16px;
+/* Highlighted / filtered matches */
+.miva-course.highlight {
+  outline: 2px solid #38bdf8;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.08);
 }
 
-.mf-brand svg {
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
-}
-
-.mf-controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.mf-btn {
-  padding: 8px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-family: inherit;
-}
-
-.mf-btn-primary {
-  background: white;
-  color: #667eea;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.mf-btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
-
-.mf-btn-primary:active {
-  transform: translateY(0);
-}
-
-.mf-stats {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  font-size: 14px;
-  backdrop-filter: blur(10px);
-}
-
-.mf-stat {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.mf-stat strong {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.mf-stat-divider {
-  opacity: 0.5;
-}
-
-/* Filtered course indicator */
-[data-mivafocus-filtered="true"] {
-  opacity: 0.3;
-  transition: opacity 0.3s ease;
-}
-
-/* Onboarding Modal */
-#mivafocus-onboarding-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  z-index: 99999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: fadeIn 0.3s ease-out;
+/* Smooth fade-in for injected elements */
+#mivafocus-control-bar,
+.miva-course {
+  animation: fadeIn 0.25s ease-in-out;
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.mf-onboarding-modal {
-  background: white;
-  border-radius: 12px;
-  padding: 32px;
-  max-width: 500px;
-  width: 90%;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(50px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.mf-onboarding-header {
-  text-align: center;
-  margin-bottom: 24px;
-}
-
-.mf-onboarding-header h2 {
-  font-size: 28px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.mf-onboarding-header p {
-  color: #666;
-  font-size: 16px;
-}
-
-.mf-onboarding-content {
-  margin-bottom: 24px;
-  color: #333;
-}
-
-#mf-onboarding-dismiss {
-  width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.2s ease;
-}
-
-#mf-onboarding-dismiss:hover {
-  transform: scale(1.02);
-}
-
-/* Responsive */
-@media (max-width: 768px) {
-  .mf-control-inner {
-    flex-direction: column;
-    gap: 12px;
-    padding: 16px;
-  }
-
-  .mf-brand {
-    font-size: 14px;
-  }
-
-  .mf-controls {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .mf-stats {
-    font-size: 12px;
-  }
-
-  .mf-stat strong {
-    font-size: 16px;
-  }
-
-  .mf-onboarding-modal {
-    padding: 24px;
-    width: 95%;
-  }
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
