@@ -706,52 +706,114 @@ class MivaFocusFilter {
     const lmsDescLower = lmsCourse.normalizedDesc;
     const lmsCode = lmsCourse.code;
     
+    // Build optimized lookup structures
+    const dbCodes = new Set();
+    const dbTitleMap = new Map();
+    
     for (const dbCourse of coursesToMatch) {
       if (!dbCourse || !dbCourse.title) continue;
-      
       const dbData = this.normalizedDbCourses.get(dbCourse.title);
       if (!dbData) continue;
       
-      const dbFullLower = dbData.normalized;
-      const dbCode = dbData.code;
+      if (dbData.code) {
+        dbCodes.add(dbData.code);
+      }
+      dbTitleMap.set(dbData.normalized, dbData);
+    }
+    
+    // Priority 1: EXACT course code match (100% confidence)
+    if (lmsCode && dbCodes.has(lmsCode)) {
+      return true;
+    }
+    
+    // Priority 2: EXACT descriptive title match (100% confidence)
+    if (dbTitleMap.has(lmsDescLower)) {
+      return true;
+    }
+    
+    // Priority 3: EXACT full title match (100% confidence)
+    if (dbTitleMap.has(lmsFullLower)) {
+      return true;
+    }
+    
+    // Priority 4: Smart fuzzy matching with sequence detection
+    for (const [dbNormalized, dbData] of dbTitleMap.entries()) {
+      // Extract all words (>2 chars for more inclusivity)
+      const lmsWords = lmsDescLower.split(/\s+/).filter(w => w.length > 2);
+      const dbWords = dbNormalized.split(/\s+/).filter(w => w.length > 2);
       
-      // Priority 1: Course code match
-      if (lmsCode && dbCode && lmsCode === dbCode) {
-        return true;
+      // Skip if either has too few words
+      if (lmsWords.length < 2 || dbWords.length < 2) continue;
+      
+      // Separate numeric/roman numerals from regular words
+      const lmsNumeric = this.extractSequenceNumbers(lmsDescLower);
+      const dbNumeric = this.extractSequenceNumbers(dbNormalized);
+      
+      // Filter out numeric tokens from word lists
+      const lmsTextWords = lmsWords.filter(w => !this.isNumericToken(w));
+      const dbTextWords = dbWords.filter(w => !this.isNumericToken(w));
+      
+      // If both courses have sequence numbers, they must match exactly
+      if (lmsNumeric.length > 0 && dbNumeric.length > 0) {
+        const lmsNumStr = lmsNumeric.sort().join(',');
+        const dbNumStr = dbNumeric.sort().join(',');
+        
+        if (lmsNumStr !== dbNumStr) {
+          continue; // Different sequence numbers, not a match
+        }
       }
       
-      // Priority 2: Exact descriptive title match (LMS desc vs DB full, since DB title is descriptive)
-      if (lmsDescLower === dbFullLower) {
-        return true;
+      // Calculate word match ratio (using text words only)
+      const lmsSet = new Set(lmsTextWords);
+      const dbSet = new Set(dbTextWords);
+      const matchingWords = [...lmsSet].filter(w => dbSet.has(w));
+      
+      // Use smaller set size as denominator for more lenient matching
+      const minWords = Math.min(lmsSet.size, dbSet.size);
+      const matchRatio = minWords > 0 ? matchingWords.length / minWords : 0;
+      
+      // Dynamic threshold based on word count
+      let requiredRatio = 0.75; // Base threshold
+      let minMatchingWords = 2;
+      
+      if (minWords >= 4) {
+        // Longer titles can be more flexible
+        requiredRatio = 0.7;
+        minMatchingWords = 3;
+      } else if (minWords === 2) {
+        // Short titles need exact match
+        requiredRatio = 1.0;
+        minMatchingWords = 2;
       }
       
-      // Priority 3: Exact full title match
-      if (lmsFullLower === dbFullLower) {
-        return true;
-      }
-      
-      // Priority 4: Substring match on descriptive
-      if (lmsDescLower.includes(dbFullLower) || dbFullLower.includes(lmsDescLower)) {
-        return true;
-      }
-      
-      // Priority 5: Substring match on full
-      if (lmsFullLower.includes(dbFullLower) || dbFullLower.includes(lmsFullLower)) {
-        return true;
-      }
-      
-      // Priority 6: Fuzzy match on descriptive
-      if (this.fuzzyMatch(lmsDescLower, dbFullLower)) {
-        return true;
-      }
-      
-      // Priority 7: Fuzzy match on full
-      if (this.fuzzyMatch(lmsFullLower, dbFullLower)) {
+      if (matchRatio >= requiredRatio && matchingWords.length >= minMatchingWords) {
         return true;
       }
     }
     
     return false;
+  }
+  
+  extractSequenceNumbers(str) {
+    // Extract all numeric sequences and roman numerals
+    const matches = str.match(/\b\d+\b|\bi{1,3}v?\b|\biv\b|\bv\b|\bvi{1,3}\b|\bix\b|\bx\b/gi) || [];
+    return matches.map(m => this.normalizeSequenceNumber(m));
+  }
+  
+  normalizeSequenceNumber(token) {
+    // Convert roman numerals to numbers for comparison
+    const romanMap = {
+      'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
+      'vi': 6, 'vii': 7, 'viii': 8, 'ix': 9, 'x': 10
+    };
+    
+    const lower = token.toLowerCase();
+    return romanMap[lower] !== undefined ? romanMap[lower].toString() : token;
+  }
+  
+  isNumericToken(word) {
+    // Check if word is a number or roman numeral
+    return /^\d+$/.test(word) || /^i{1,3}v?$|^iv$|^v$|^vi{1,3}$|^ix$|^x$/i.test(word);
   }
 
   fuzzyMatch(str1, str2) {
