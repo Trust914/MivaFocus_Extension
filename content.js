@@ -3,6 +3,7 @@
  * Filters LMS courses by department with level/semester controls on the page
  * Registration only requires department selection
  * Injects filter UI into existing LMS page for integration
+ * IMPROVED: Use explicit course.code from DB for matching, normalize by removing spaces
  */
 
 class MivaFocusFilter {
@@ -74,20 +75,6 @@ class MivaFocusFilter {
     await chrome.storage.sync.set({ userSettings: this.userSettings });
   }
 
-  async fetchFullDatabase() {
-    const githubRawUrl = 'https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/courses_database.json';
-    try {
-      const response = await fetch(githubRawUrl);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: Failed to fetch database`);
-      }
-      return await response.json();
-    } catch (error) {
-      console.error('[MivaFocus] Database fetch error:', error);
-      return null;
-    }
-  }
-
   async loadDepartmentCourses() {
     try {
       const result = await chrome.storage.local.get('departmentCourses');
@@ -121,6 +108,20 @@ class MivaFocusFilter {
     }
   }
 
+  async fetchFullDatabase() {
+    const githubRawUrl = 'https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/courses_database.json';
+    try {
+      const response = await fetch(githubRawUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: Failed to fetch database`);
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('[MivaFocus] Database fetch error:', error);
+      return null;
+    }
+  }
+
   cacheNormalizedCourses() {
     this.normalizedDbCourses.clear();
     
@@ -133,8 +134,7 @@ class MivaFocusFilter {
             semesterCourses.forEach(course => {
               if (course && course.title) {
                 const normalized = this.normalizeTitle(course.title).toLowerCase();
-                const codeMatch = course.title.match(/\b([A-Z]{3})\s*(\d{3})\b/i);
-                const courseCode = codeMatch ? `${codeMatch[1]}${codeMatch[2]}`.toLowerCase() : null;
+                const courseCode = course.code ? course.code.replace(/\s+/g, '').toLowerCase() : null;
                 
                 this.normalizedDbCourses.set(course.title, {
                   original: course.title,
@@ -202,10 +202,22 @@ class MivaFocusFilter {
     courseElements.forEach(el => {
       const title = this.extractCourseTitle(el);
       if (title && title.length > 5) {
+        const normalizedFull = this.normalizeTitle(title).toLowerCase();
+        const codeMatch = title.match(/\b([A-Z]{3})\s*(\d{3})\b/i);
+        const courseCode = codeMatch ? `${codeMatch[1]}${codeMatch[2]}`.toLowerCase() : null;
+        
+        let descriptiveTitle = title;
+        if (codeMatch) {
+          descriptiveTitle = title.replace(codeMatch[0], '').replace(/^\s*[-–—:\s]*/, '').trim();
+        }
+        const normalizedDesc = this.normalizeTitle(descriptiveTitle).toLowerCase();
+        
         this.lmsCourses.push({
           element: el,
-          title: title,
-          normalizedTitle: this.normalizeTitle(title).toLowerCase()
+          title,
+          normalizedFull,
+          normalizedDesc,
+          code: courseCode
         });
       }
     });
@@ -690,43 +702,56 @@ class MivaFocusFilter {
   }
 
   matchCourse(lmsCourse, coursesToMatch) {
-    const lmsTitleLower = lmsCourse.normalizedTitle;
-    const lmsCourseCode = this.extractCourseCode(lmsCourse.title);
+    const lmsFullLower = lmsCourse.normalizedFull;
+    const lmsDescLower = lmsCourse.normalizedDesc;
+    const lmsCode = lmsCourse.code;
     
     for (const dbCourse of coursesToMatch) {
       if (!dbCourse || !dbCourse.title) continue;
       
-      const cachedData = this.normalizedDbCourses.get(dbCourse.title);
-      const dbTitleLower = cachedData?.normalized || this.normalizeTitle(dbCourse.title).toLowerCase();
-      const dbCourseCode = cachedData?.code || this.extractCourseCode(dbCourse.title);
+      const dbData = this.normalizedDbCourses.get(dbCourse.title);
+      if (!dbData) continue;
+      
+      const dbFullLower = dbData.normalized;
+      const dbCode = dbData.code;
       
       // Priority 1: Course code match
-      if (lmsCourseCode && dbCourseCode && lmsCourseCode === dbCourseCode) {
+      if (lmsCode && dbCode && lmsCode === dbCode) {
         return true;
       }
       
-      // Priority 2: Exact normalized title match
-      if (lmsTitleLower === dbTitleLower) {
+      // Priority 2: Exact descriptive title match (LMS desc vs DB full, since DB title is descriptive)
+      if (lmsDescLower === dbFullLower) {
         return true;
       }
       
-      // Priority 3: Substring match
-      if (lmsTitleLower.includes(dbTitleLower) || dbTitleLower.includes(lmsTitleLower)) {
+      // Priority 3: Exact full title match
+      if (lmsFullLower === dbFullLower) {
         return true;
       }
       
-      // Priority 4: Fuzzy word matching
-      if (this.fuzzyMatch(lmsTitleLower, dbTitleLower)) {
+      // Priority 4: Substring match on descriptive
+      if (lmsDescLower.includes(dbFullLower) || dbFullLower.includes(lmsDescLower)) {
+        return true;
+      }
+      
+      // Priority 5: Substring match on full
+      if (lmsFullLower.includes(dbFullLower) || dbFullLower.includes(lmsFullLower)) {
+        return true;
+      }
+      
+      // Priority 6: Fuzzy match on descriptive
+      if (this.fuzzyMatch(lmsDescLower, dbFullLower)) {
+        return true;
+      }
+      
+      // Priority 7: Fuzzy match on full
+      if (this.fuzzyMatch(lmsFullLower, dbFullLower)) {
         return true;
       }
     }
     
     return false;
-  }
-
-  extractCourseCode(title) {
-    const match = title.match(/\b([A-Z]{3})\s*(\d{3})\b/i);
-    return match ? `${match[1]}${match[2]}`.toLowerCase() : null;
   }
 
   fuzzyMatch(str1, str2) {
