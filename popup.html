@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MivaFocus Settings</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Onboarding Screen -->
+  <div id="onboarding" class="content">
+    <div class="header">
+      <h2>⚡ MivaFocus Setup</h2>
+      <p>Select your department to get started</p>
+    </div>
+
+    <div id="loading" class="loading hidden">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10" stroke-dasharray="31.416" stroke-dashoffset="10"></circle>
+      </svg>
+      <p>Loading departments...</p>
+    </div>
+
+    <div id="error" class="error hidden"></div>
+
+    <div class="form-group">
+      <label for="department">Department</label>
+      <select id="department">
+        <option value="">Select Department</option>
+      </select>
+    </div>
+
+    <button id="saveSetup" class="btn btn-primary" disabled>Save & Continue</button>
+  </div>
+
+  <!-- Settings Screen -->
+  <div id="settings" class="content hidden">
+    <div class="header">
+      <h2>⚙️ MivaFocus Settings</h2>
+      <p>Manage your course filter</p>
+    </div>
+
+    <!-- Current Settings Display -->
+    <div id="currentSettings" class="current-settings"></div>
+
+    <!-- Global Toggle -->
+    <div class="button-group">
+      <button id="toggleGlobalFilter" class="btn btn-secondary">Enable Filter</button>
+      <button id="resetSettings" class="btn btn-danger">Reset Settings</button>
+    </div>
+
+    <div style="margin-top: 1rem; padding: 1rem; background: #f0f9ff; border-radius: 6px; border: 1px solid #bae6fd;">
+      <p style="margin: 0; font-size: 0.875rem; color: #0369a1;">
+        💡 <strong>Tip:</strong> Use the filter dropdowns on the LMS page to adjust level and semester filters.
+      </p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

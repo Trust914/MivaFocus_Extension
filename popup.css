@@ -1,0 +1,336 @@
+/**
+ * MivaFocus Popup Styles
+ * Modern, clean design with smooth interactions
+ */
+
+/* Base Styles */
+body {
+  width: 350px;
+  min-height: 400px;
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+/* Layout */
+.content {
+  padding: 1rem;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Header */
+.header {
+  margin-bottom: 1.5rem;
+  text-align: center;
+  padding: 0.5rem 0;
+}
+
+.header h2 {
+  margin: 0 0 0.5rem 0;
+  color: #1e40af;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 0.875rem;
+}
+
+/* Loading State */
+.loading {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.loading svg {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 1rem;
+  display: block;
+  color: #3b82f6;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading p {
+  color: #64748b;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+/* Error State */
+.error {
+  background: #fee2e2;
+  color: #dc2626;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+  border: 1px solid #fecaca;
+  text-align: center;
+}
+
+/* Form Elements */
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #1e293b;
+  font-size: 0.875rem;
+}
+
+.form-group select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: white;
+  color: #1e293b;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.form-group select:hover {
+  border-color: #94a3b8;
+}
+
+.form-group select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Buttons */
+.btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #2563eb;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(59, 130, 246, 0.2);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-secondary {
+  background: #64748b;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #475569;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(100, 116, 139, 0.2);
+}
+
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-danger {
+  background: #ef4444;
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(239, 68, 68, 0.2);
+}
+
+.btn-danger:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* Button Group */
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* Current Settings Display */
+.current-settings {
+  margin-bottom: 1rem;
+}
+
+.current-settings > div {
+  background: #f1f5f9;
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.current-settings p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.current-settings p:first-child {
+  color: #64748b;
+  margin-bottom: 0.5rem;
+}
+
+.current-settings p:last-child {
+  font-weight: 500;
+  color: #1e293b;
+}
+
+/* Filter Preview */
+.filter-preview {
+  display: none;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+  color: #1e40af;
+  text-align: center;
+}
+
+.filter-preview.show {
+  display: block;
+}
+
+/* Stats Display */
+.stats {
+  margin-top: 1rem;
+}
+
+.stats > div {
+  background: #f1f5f9;
+  padding: 1rem;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.stats strong {
+  font-weight: 600;
+}
+
+/* Specific IDs */
+#onboarding {
+  /* Container styles inherited from .content */
+}
+
+#settings {
+  /* Container styles inherited from .content */
+}
+
+#toggleGlobalFilter {
+  /* Styles inherited from .btn and .btn-secondary */
+}
+
+#resetSettings {
+  /* Styles inherited from .btn and .btn-danger */
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 360px) {
+  body {
+    width: 100%;
+  }
+  
+  .content {
+    padding: 0.75rem;
+  }
+}
+
+/* Accessibility */
+.btn:focus-visible,
+select:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Smooth transitions */
+* {
+  box-sizing: border-box;
+}
+
+select,
+.btn {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23475569' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2.5rem;
+}
+
+/* Animation for stats update */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stats:not(.hidden) {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Success feedback animation */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.btn-primary.success {
+  animation: pulse 0.5s ease-in-out;
+}
