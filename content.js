@@ -1,11 +1,3 @@
-/**
- * MivaFocus Content Script
- * Filters LMS courses by department with level/semester controls on the page
- * Registration only requires department selection
- * Injects filter UI into existing LMS page for integration
- * IMPROVED: Use explicit course.code from DB for matching, normalize by removing spaces
- */
-
 class MivaFocusFilter {
   constructor() {
     this.userSettings = null;
@@ -23,6 +15,33 @@ class MivaFocusFilter {
     if (this.initialized) return;
     
     console.log('[MivaFocus] Initializing...');
+    
+    // Message listener for popup communication
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      (async () => {
+        try {
+          switch (request.action) {
+            case 'updateSettings':
+              await this.handleSettingsUpdate(request.settings);
+              sendResponse({ success: true });
+              break;
+            case 'resetSettings':
+              await this.handleReset();
+              sendResponse({ success: true });
+              break;
+            case 'getStats':
+              sendResponse(this.stats);
+              break;
+            default:
+              sendResponse({ success: false, error: 'Unknown action' });
+          }
+        } catch (error) {
+          console.error('[MivaFocus] Message handler error:', error);
+          sendResponse({ success: false, error: error.message });
+        }
+      })();
+      return true;
+    });
     
     try {
       await this.loadUserSettings();
@@ -63,7 +82,7 @@ class MivaFocusFilter {
       filterEnabled: false,
       filterLevel: null,
       filterSemester: null,
-      showStats: true,
+      showStats: false,
       onboardingComplete: false
     };
 
@@ -221,7 +240,9 @@ class MivaFocusFilter {
         });
       }
     });
-    
+
+    // console.log(`[MivaFocus] Courses: ${this.lmsCourses.map(c => c.title).join(' | ')}`);
+
     console.log(`[MivaFocus] Extracted ${this.lmsCourses.length} courses from LMS`);
   }
 
@@ -283,11 +304,7 @@ class MivaFocusFilter {
   }
 
   normalizeTitle(title) {
-    return title
-      .toLowerCase()
-      .replace(/[^\w\s]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return title.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
   }
 
   injectUI() {
@@ -338,14 +355,16 @@ class MivaFocusFilter {
           </ul>
         </div>
       </div>
-      <button id="mf-toggle-filter" class="btn ${this.userSettings.filterEnabled ? 'btn-danger' : 'btn-primary'} ml-2">
-        ${this.userSettings.filterEnabled ? 'Disable Filter' : 'Enable Filter'}
-      </button>
-      <div id="mf-stats" class="d-flex align-items-center ml-2 ${this.userSettings.showStats ? '' : 'd-none'}" style="font-size: 0.875rem; color: #64748b;">
-        <span>Visible: <strong id="mf-visible-count" style="color: #059669;">0</strong></span>
-        <span style="margin: 0 0.5rem;">|</span>
-        <span>Hidden: <strong id="mf-hidden-count" style="color: #dc2626;">0</strong></span>
-      </div>
+      <!--
+        <button id="mf-toggle-filter" class="btn ${this.userSettings.filterEnabled ? 'btn-danger' : 'btn-primary'} ml-2">
+          ${this.userSettings.filterEnabled ? 'Disable Filter' : 'Enable Filter'}
+        </button>
+        <div id="mf-stats" class="d-flex align-items-center ml-2 ${this.userSettings.showStats ? '' : 'd-none'}" style="font-size: 0.875rem; color: #64748b;">
+          <span>Visible: <strong id="mf-visible-count" style="color: #059669;">0</strong></span>
+          <span style="margin: 0 0.5rem;">|</span>
+          <span>Hidden: <strong id="mf-hidden-count" style="color: #dc2626;">0</strong></span>
+        </div>
+      -->
     `;
 
     navSearchSort.appendChild(controlContainer);
@@ -377,7 +396,6 @@ class MivaFocusFilter {
     controlBar.id = 'mivafocus-control-bar';
     controlBar.style.cssText = `
       position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; 
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
       border-bottom: 2px solid rgba(255,255,255,0.2); padding: 0.75rem 1.5rem;
       display: flex; align-items: center; justify-content: space-between; 
       font-family: system-ui, -apple-system, sans-serif; 
@@ -414,34 +432,36 @@ class MivaFocusFilter {
         </div>
       </div>
 
+      <!--
       <div style="display: flex; align-items: center; gap: 1rem;">
-        <button id="mf-toggle-filter" style="
-          background: ${this.userSettings.filterEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)'}; 
-          color: ${this.userSettings.filterEnabled ? 'white' : '#1e293b'}; 
-          border: none; padding: 0.625rem 1.25rem; border-radius: 8px; 
-          cursor: pointer; font-size: 0.875rem; font-weight: 600; 
-          transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        ">
-          ${this.userSettings.filterEnabled ? '✕ Disable Filter' : '✓ Enable Filter'}
-        </button>
-        
-        <div style="
-          display: ${this.userSettings.showStats ? 'flex' : 'none'}; 
-          align-items: center; gap: 1rem; padding: 0.5rem 1rem; 
-          background: rgba(255,255,255,0.95); border-radius: 8px; 
-          box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-size: 0.875rem;
-        ">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span style="color: #64748b;">Visible:</span>
-            <strong id="mf-visible-count" style="color: #059669; font-size: 1rem;">0</strong>
-          </div>
-          <div style="width: 1px; height: 20px; background: #e2e8f0;"></div>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span style="color: #64748b;">Hidden:</span>
-            <strong id="mf-hidden-count" style="color: #dc2626; font-size: 1rem;">0</strong>
+          <button id="mf-toggle-filter" style="
+            background: ${this.userSettings.filterEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)'}; 
+            color: ${this.userSettings.filterEnabled ? 'white' : '#1e293b'}; 
+            border: none; padding: 0.625rem 1.25rem; border-radius: 8px; 
+            cursor: pointer; font-size: 0.875rem; font-weight: 600; 
+            transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          ">
+            ${this.userSettings.filterEnabled ? '✕ Disable Filter' : '✓ Enable Filter'}
+          </button>
+          
+          <div style="
+            display: ${this.userSettings.showStats ? 'flex' : 'none'}; 
+            align-items: center; gap: 1rem; padding: 0.5rem 1rem; 
+            background: rgba(255,255,255,0.95); border-radius: 8px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-size: 0.875rem;
+          ">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span style="color: #64748b;">Visible:</span>
+              <strong id="mf-visible-count" style="color: #059669; font-size: 1rem;">0</strong>
+            </div>
+            <div style="width: 1px; height: 20px; background: #e2e8f0;"></div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span style="color: #64748b;">Hidden:</span>
+              <strong id="mf-hidden-count" style="color: #dc2626; font-size: 1rem;">0</strong>
+            </div>
           </div>
         </div>
-      </div>
+      -->
     `;
 
     document.body.insertBefore(controlBar, document.body.firstChild);
@@ -490,32 +510,6 @@ class MivaFocusFilter {
       });
     }
 
-    // Message listener for popup communication
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      (async () => {
-        try {
-          switch (request.action) {
-            case 'updateSettings':
-              await this.handleSettingsUpdate(request.settings);
-              sendResponse({ success: true });
-              break;
-            case 'resetSettings':
-              await this.handleReset();
-              sendResponse({ success: true });
-              break;
-            case 'getStats':
-              sendResponse(this.stats);
-              break;
-            default:
-              sendResponse({ success: false, error: 'Unknown action' });
-          }
-        } catch (error) {
-          console.error('[MivaFocus] Message handler error:', error);
-          sendResponse({ success: false, error: error.message });
-        }
-      })();
-      return true;
-    });
   }
 
   async toggleFilter() {
@@ -721,17 +715,17 @@ class MivaFocusFilter {
       dbTitleMap.set(dbData.normalized, dbData);
     }
     
-    // Priority 1: EXACT course code match (100% confidence)
+    // Priority 1: EXACT course code match
     if (lmsCode && dbCodes.has(lmsCode)) {
       return true;
     }
     
-    // Priority 2: EXACT descriptive title match (100% confidence)
+    // Priority 2: EXACT descriptive title match
     if (dbTitleMap.has(lmsDescLower)) {
       return true;
     }
     
-    // Priority 3: EXACT full title match (100% confidence)
+    // Priority 3: EXACT full title match
     if (dbTitleMap.has(lmsFullLower)) {
       return true;
     }
