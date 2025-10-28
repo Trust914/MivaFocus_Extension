@@ -1,19 +1,13 @@
-"""
-MIVA Open University Course Scraper
-Automatically scrapes and updates course data from miva.edu.ng
-Production-ready version for MivaFocus Extension
-"""
-
 import requests
 from bs4 import BeautifulSoup
 import json
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
-import time
 import logging
 import sys
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Configure logging with UTF-8 encoding for Windows compatibility
 file_handler = logging.FileHandler('scraper.log', encoding='utf-8')
@@ -53,25 +47,38 @@ class MivaCourseScraper:
         'public health': 'PHH',
     }
     
-    def __init__(self, base_url: str = "https://miva.edu.ng", timeout: int = 15):
+    def __init__(self, base_url: str = "https://miva.edu.ng", timeout: int = 15, max_workers: int = 5, parser: str = 'lxml'):
         self.base_url = base_url
         self.timeout = timeout
+        self.max_workers = max_workers  # Max parallel scraping threads
+        self.parser = parser  # 'lxml' (faster) or 'html.parser' (built-in)
+        
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
         
+        # This dict will be populated and returned
         self.courses_data = {
             "metadata": {
                 "version": "2.0.0",
-                "lastUpdated": datetime.now().isoformat(),
+                "lastUpdated": "", # Will be set upon completion
                 "academicYear": "2024/2025",
                 "source": base_url,
                 "scraper": "MivaFocus Course Scraper"
             },
             "faculties": {}
         }
-    
+        
+        # --- Pre-compiled Regex for efficiency ---
+        self.RE_FACULTIES_CHILD = re.compile(r'faculties-child')
+        self.RE_ELEMENTOR_ELEMENT = re.compile(r'elementor-element')
+        self.RE_ACCORDION_ITEM = re.compile(r'elementor-accordion-item')
+        self.RE_TAB_CONTENT = re.compile(r'elementor-tab-content')
+        self.RE_LEVEL_TITLE = re.compile(r'\b([12345])00\s*level\b', re.IGNORECASE)
+        self.RE_FIRST_DIGIT = re.compile(r'(\d+)')
+        self.RE_HAS_DIGIT = re.compile(r'\d+')
+
     def scrape_faculties_page(self, faculties_url: str) -> List[Dict]:
         """Scrape main faculties page to extract all faculties and departments"""
         logger.info(f"Scraping faculties from: {faculties_url}")
@@ -79,10 +86,10 @@ class MivaCourseScraper:
         try:
             response = self.session.get(faculties_url, timeout=self.timeout)
             response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(response.content, self.parser)
             
             faculties = []
-            faculty_sections = soup.find_all('div', class_=re.compile('faculties-child'))
+            faculty_sections = soup.find_all('div', class_=self.RE_FACULTIES_CHILD)
             
             for section in faculty_sections:
                 heading = section.find(['h2'], class_='elementor-heading-title')
@@ -90,7 +97,7 @@ class MivaCourseScraper:
                     faculty_name = heading.text.strip()
                     logger.info(f"Found faculty: {faculty_name}")
                     
-                    container = section.find_parent('div', class_=re.compile(r'elementor-element'))
+                    container = section.find_parent('div', class_=self.RE_ELEMENTOR_ELEMENT)
                     if container:
                         dept_list = container.find_next('ul', class_='elementor-icon-list-items')
                         
@@ -100,7 +107,7 @@ class MivaCourseScraper:
                                 link = dept_item.find('a')
                                 if link:
                                     dept_text = dept_item.get_text(strip=True)
-                                    dept_url = link.get('href', '')
+                                    dept_url = str(link.get('href', ''))
                                     dept_code = self._extract_dept_code(dept_text, dept_url)
                                     
                                     departments.append({
@@ -150,15 +157,14 @@ class MivaCourseScraper:
     
     def scrape_department_page(self, dept_url: str, dept_name: str) -> Dict:
         """Scrape individual department page for course data"""
-        logger.info(f"Scraping {dept_name}")
         
         try:
             response = self.session.get(dept_url, timeout=self.timeout)
             response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
+            soup = BeautifulSoup(response.content, self.parser)
             
             courses_by_level = {}
-            accordion_items = soup.find_all('div', class_=re.compile(r'elementor-accordion-item'))
+            accordion_items = soup.find_all('div', class_=self.RE_ACCORDION_ITEM)
             
             for accordion in accordion_items:
                 title_elem = accordion.find('a', class_='elementor-accordion-title')
@@ -167,28 +173,24 @@ class MivaCourseScraper:
                 
                 if title_elem:
                     title_text = title_elem.get_text(strip=True)
-                    level_match = re.search(r'\b([12345])00\s*level\b', title_text, re.IGNORECASE)
+                    level_match = self.RE_LEVEL_TITLE.search(title_text)
                     
                     if level_match:
                         level = f"{level_match.group(1)}00_Level"
-                        content_div = accordion.find('div', class_=re.compile(r'elementor-tab-content'))
+                        content_div = accordion.find('div', class_=self.RE_TAB_CONTENT)
                         
                         if content_div:
                             courses_by_semester = self._extract_courses_from_tables(content_div)
                             
                             if courses_by_semester:
                                 courses_by_level[level] = courses_by_semester
-                                total = sum(len(courses) for courses in courses_by_semester.values())
-                                logger.info(f"  Level {level}: {total} courses")
             
             return courses_by_level
             
         except requests.RequestException as e:
-            logger.error(f"Network error scraping {dept_name}: {e}")
-            return {}
+            raise Exception(f"Network error scraping {dept_name}: {e}") from e
         except Exception as e:
-            logger.error(f"Error scraping {dept_name}: {e}", exc_info=True)
-            return {}
+            raise Exception(f"Error scraping {dept_name}: {e}") from e
     
     def _extract_courses_from_tables(self, content_div) -> Dict:
         """Extract courses organized by semester from content div"""
@@ -222,7 +224,6 @@ class MivaCourseScraper:
                     return f'first_{sem_string}'
                 elif '2nd semester' in comment_text or 'second semester' in comment_text:
                     return f'second_{sem_string}'
-
         
         # Check table header
         thead = table.find('thead')
@@ -242,7 +243,6 @@ class MivaCourseScraper:
                 return f'first_{sem_string}'
             elif '2nd semester' in row_text or 'second semester' in row_text:
                 return f'second_{sem_string}'
-
         
         # Fallback to table position
         return f'first_{sem_string}' if table_index == 0 else f'second_{sem_string}' if table_index == 1 else None
@@ -266,7 +266,7 @@ class MivaCourseScraper:
                     second_text = cells[1].get_text(strip=True)
                     
                     # Valid course row: substantial title + numeric units
-                    if first_text and len(first_text) > 3 and re.search(r'\d+', second_text):
+                    if first_text and len(first_text) > 3 and self.RE_HAS_DIGIT.search(second_text):
                         accordion_rows.append(row)
         
         # Extract course data
@@ -277,7 +277,7 @@ class MivaCourseScraper:
                 title = cells[0].get_text(strip=True)
                 units_text = cells[1].get_text(strip=True)
                 
-                units_match = re.search(r'(\d+)', units_text)
+                units_match = self.RE_FIRST_DIGIT.search(units_text)
                 if units_match and title:
                     courses.append({
                         'title': title,
@@ -287,9 +287,10 @@ class MivaCourseScraper:
         return courses
     
     def scrape_all(self, faculties_url: str) -> Dict:
-        """Main scraping method - scrapes all faculties and departments"""
+        """Main scraping method - scrapes all faculties and departments concurrently"""
         logger.info("=" * 70)
         logger.info("MIVA OPEN UNIVERSITY COURSE SCRAPER - STARTING")
+        logger.info(f"Mode: Concurrent (max_workers={self.max_workers}), Parser: {self.parser}")
         logger.info("=" * 70)
         
         faculties = self.scrape_faculties_page(faculties_url)
@@ -298,9 +299,6 @@ class MivaCourseScraper:
             logger.error("No faculties found. Scraping failed.")
             return self.courses_data
         
-        total_departments = 0
-        total_courses = 0
-        
         for faculty in faculties:
             faculty_name = faculty['name']
             logger.info(f"\n{faculty_name}")
@@ -308,101 +306,67 @@ class MivaCourseScraper:
             
             self.courses_data['faculties'][faculty_name] = {'departments': {}}
             
-            for dept in faculty['departments']:
-                dept_name = dept['name']
-                dept_code = dept['code']
-                dept_url = dept['url']
+            # --- Concurrent Scraping Block ---
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                future_to_dept = {}
                 
-                if dept_url.startswith('/'):
-                    dept_url = self.base_url + dept_url
-                
-                courses = self.scrape_department_page(dept_url, dept_name)
-                
-                if courses:
-                    self.courses_data['faculties'][faculty_name]['departments'][dept_code] = {
-                        'name': dept_name,
-                        'url': dept_url,
-                        'courses': courses
-                    }
+                for dept in faculty['departments']:
+                    dept_name = dept['name']
+                    dept_code = dept['code']
+                    dept_url = dept['url']
                     
-                    dept_total = sum(
-                        len(semester_courses)
-                        for level_data in courses.values()
-                        for semester_courses in level_data.values()
-                    )
-                    total_departments += 1
-                    total_courses += dept_total
-                    logger.info(f"[OK] {dept_code}: {dept_total} courses")
-                else:
-                    logger.warning(f"[SKIP] {dept_code}: No courses found")
+                    if dept_url.startswith('/'):
+                        dept_url = self.base_url + dept_url
+                    
+                    logger.info(f"Submitting job for {dept_code}: {dept_name}")
+                    future = executor.submit(self.scrape_department_page, dept_url, dept_name)
+                    future_to_dept[future] = (dept_code, dept_name, dept_url)
                 
-                time.sleep(1)  # Rate limiting
-        
+                # Process results as they complete
+                for future in as_completed(future_to_dept):
+                    dept_code, dept_name, dept_url = future_to_dept[future]
+                    try:
+                        courses = future.result()
+                        
+                        if courses:
+                            self.courses_data['faculties'][faculty_name]['departments'][dept_code] = {
+                                'name': dept_name,
+                                'url': dept_url,
+                                'courses': courses
+                            }
+                            dept_total = sum(
+                                len(semester_courses)
+                                for level_data in courses.values()
+                                for semester_courses in level_data.values()
+                            )
+                            logger.info(f"[OK] {dept_code}: {dept_total} courses found")
+                        else:
+                            logger.warning(f"[SKIP] {dept_code}: No courses found")
+                    
+                    except Exception as e:
+                        logger.error(f"[FAIL] {dept_code} ({dept_name}): {e}")
+            # --- End Concurrent Block ---
+
+        # --- Summary Report (decoupled from scraping) ---
+        total_departments = 0
+        total_courses = 0
+        for faculty_data in self.courses_data['faculties'].values():
+            for dept_data in faculty_data['departments'].values():
+                total_departments += 1
+                dept_total = sum(
+                    len(semester_courses)
+                    for level_data in dept_data['courses'].values()
+                    for semester_courses in level_data.values()
+                )
+                total_courses += dept_total
+
         logger.info("\n" + "=" * 70)
         logger.info(f"SCRAPING COMPLETED SUCCESSFULLY")
         logger.info(f"Total Departments: {total_departments}")
         logger.info(f"Total Courses: {total_courses}")
         logger.info("=" * 70)
         
+        # Set final timestamp
+        self.courses_data['metadata']['lastUpdated'] = datetime.now().isoformat()
+        
         return self.courses_data
-    
-    def save_to_json(self, filename: str = 'miva_courses_full.json'):
-        """Save complete scraped data to JSON"""
-        try:
-            output_path = Path(filename)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(self.courses_data, f, indent=2, ensure_ascii=False)
-            logger.info(f"Full data saved to: {output_path.absolute()}")
-        except Exception as e:
-            logger.error(f"Error saving full data: {e}")
-    
-    def save_extension_format(self, filename: str = 'courses_database.json'):
-        """Save in optimized format for browser extension"""
-        try:
-            flattened = {
-                "metadata": self.courses_data['metadata'],
-                "departments": {}
-            }
-            
-            for faculty_data in self.courses_data['faculties'].values():
-                for dept_code, dept_data in faculty_data['departments'].items():
-                    flattened['departments'][dept_code] = {
-                        'name': dept_data['name'],
-                        'courses': dept_data['courses']
-                    }
-            
-            output_path = Path(filename)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(flattened, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Extension format saved to: {output_path.absolute()}")
-            
-        except Exception as e:
-            logger.error(f"Error saving extension format: {e}")
-
-
-def main():
-    """Main execution function"""
-    try:
-        scraper = MivaCourseScraper(base_url="https://miva.edu.ng")
-        
-        # Scrape all courses
-        scraper.scrape_all("https://miva.edu.ng")
-        
-        # Save both formats
-        scraper.save_to_json('miva_courses_full.json')
-        scraper.save_extension_format('courses_database.json')
-        
-        logger.info("\n[SUCCESS] Scraping completed successfully!")
-        return 0
-        
-    except KeyboardInterrupt:
-        logger.warning("\nScraping interrupted by user")
-        return 1
-    except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
-        return 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
