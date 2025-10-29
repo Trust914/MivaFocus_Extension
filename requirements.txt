@@ -1,3 +1,4 @@
 requests>=2.32.5
-beautifulsoup>=4.14.2
+beautifulsoup4>=4.14.2
+lxml>=4.9.3
 
