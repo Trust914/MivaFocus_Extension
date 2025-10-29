@@ -1,3 +1,9 @@
+"""
+MIVA Course Scraper - Automated Update System
+=============================================
+Handles automated course database updates with change detection and changelog management.
+"""
+
 import json
 import hashlib
 from pathlib import Path
@@ -6,21 +12,28 @@ from datetime import datetime
 import sys
 import os
 
-# Import the scraper
+# Import settings and scraper
+import settings
 from scrape_courses import MivaCourseScraper, logger
 
 
 class AutoUpdateSystem:
     """Handles automated course database updates with change detection and changelog management."""
 
-    def __init__(self, output_dir: Path = Path('.')):
-        self.output_dir = Path(output_dir).resolve()
-        self.output_dir.mkdir(exist_ok=True)
+    def __init__(self, output_dir: Optional[Path] = None):
+        """
+        Initialize update system with settings from config file or override parameter.
+        
+        Args:
+            output_dir: Override OUTPUT_DIR from settings
+        """
+        self.output_dir = output_dir or settings.OUTPUT_DIR
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        self.full_data_file = self.output_dir / 'miva_courses_full.json'
-        self.extension_file = self.output_dir / 'courses_database.json'
-        self.hash_file = self.output_dir / '.courses_hash.txt'
-        self.changelog_file = self.output_dir / 'CHANGELOG.md'
+        self.full_data_file = settings.FULL_DATA_FILE
+        self.extension_file = settings.EXTENSION_FILE
+        self.hash_file = settings.HASH_FILE
+        self.changelog_file = settings.CHANGELOG_FILE
 
     def _load_json(self, file_path: Path) -> Dict[str, Any]:
         """Load JSON from file with error handling."""
@@ -41,8 +54,24 @@ class AutoUpdateSystem:
         try:
             with file_path.open('w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
+            logger.info(f"Saved data to {file_path}")
         except IOError as e:
             logger.error(f"Failed to save {file_path}: {e}")
+
+    def _build_extension_format(self, full_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert full data structure to flattened extension format in memory."""
+        flattened = {
+            "metadata": full_data.get('metadata', {}),
+            "departments": {}
+        }
+        
+        for faculty_data in full_data.get('faculties', {}).values():
+            for dept_code, dept_data in faculty_data.get('departments', {}).items():
+                flattened['departments'][dept_code] = {
+                    'name': dept_data['name'],
+                    'courses': dept_data['courses']
+                }
+        return flattened
 
     def _calculate_hash(self, data: Dict[str, Any]) -> str:
         """Calculate SHA-256 hash of *departments* only (stable part) for change detection."""
@@ -70,7 +99,7 @@ class AutoUpdateSystem:
             'new_departments': [],
             'modified_departments': [],
             'new_courses': 0,
-            'modified_courses': 0,
+            'modified_courses': 0,  # Tracks removals or modifications
         }
 
         old_depts = old_data.get('departments', {})
@@ -78,33 +107,43 @@ class AutoUpdateSystem:
 
         # Handle first run: all new
         if not old_depts:
-            changes['new_departments'] = list(new_depts.keys())
-            changes['new_courses'] = sum(
-                sum(len(sem) for sem in level.values())
-                for dept in new_depts.values()
-                for level in dept.get('courses', {}).values()
-            )
+            if settings.CREATE_INITIAL_CHANGELOG:
+                changes['new_departments'] = list(new_depts.keys())
+                changes['new_courses'] = sum(
+                    sum(len(sem) for sem in level.values())
+                    for dept in new_depts.values()
+                    for level in dept.get('courses', {}).values()
+                )
             return changes
 
         # New departments
         for dept_code in new_depts:
             if dept_code not in old_depts:
                 changes['new_departments'].append(dept_code)
+                # Count all courses in new dept as new
+                new_dept_courses = new_depts[dept_code].get('courses', {})
+                changes['new_courses'] += sum(
+                    len(sem) for level in new_dept_courses.values() for sem in level.values()
+                )
 
-        # Modified departments and course counts
+        # Modified departments
         for dept_code, new_dept in new_depts.items():
-            if dept_code in old_depts:
+            if dept_code in old_depts and dept_code not in changes['new_departments']:
                 old_courses = old_depts[dept_code].get('courses', {})
                 new_courses = new_dept.get('courses', {})
 
-                # Structural change?
-                if json.dumps(old_courses, sort_keys=True) != json.dumps(new_courses, sort_keys=True):
+                # Use hash for quick check
+                old_courses_hash = json.dumps(old_courses, sort_keys=True)
+                new_courses_hash = json.dumps(new_courses, sort_keys=True)
+                
+                if old_courses_hash != new_courses_hash:
                     changes['modified_departments'].append(dept_code)
 
                     # Approximate count diff (additions/removals)
                     old_count = sum(len(sem) for level in old_courses.values() for sem in level.values())
                     new_count = sum(len(sem) for level in new_courses.values() for sem in level.values())
                     diff = new_count - old_count
+                    
                     if diff > 0:
                         changes['new_courses'] += diff
                     elif diff < 0:
@@ -114,7 +153,7 @@ class AutoUpdateSystem:
 
     def _update_changelog(self, changes: Dict[str, Any]) -> None:
         """Append change summary to changelog file."""
-        if not any(changes.values()):
+        if not any(v for k, v in changes.items() if k != 'modified_courses' and v) and not changes['modified_courses']:
             logger.info("No structural changes detected - changelog not updated")
             return
 
@@ -134,22 +173,28 @@ class AutoUpdateSystem:
             entry += "\n"
 
         if changes['new_courses']:
-            entry += f"### New Courses Added: {changes['new_courses']}\n\n"
+            entry += f"### New Courses Added (Approx.): {changes['new_courses']}\n\n"
 
         if changes['modified_courses']:
-            entry += f"### Courses Modified/Removed: {changes['modified_courses']}\n\n"
+            entry += f"### Courses Modified/Removed (Approx.): {changes['modified_courses']}\n\n"
 
-        # Append to existing or create new
+        # Prepend to existing or create new
         if self.changelog_file.exists():
-            content = self.changelog_file.read_text(encoding='utf-8') + entry
+            content = self.changelog_file.read_text(encoding='utf-8')
+            # Find the first H2 to insert after the H1
+            first_h2 = content.find('\n## ')
+            if first_h2 != -1:
+                content = content[:first_h2] + entry + content[first_h2:]
+            else:
+                content += entry  # Fallback, append
         else:
-            content = "# Course Database Changelog\n\n" + entry
+            content = "# Course Database Changelog\n" + entry
 
         self.changelog_file.write_text(content, encoding='utf-8')
         logger.info(f"Changelog updated: {self.changelog_file}")
 
     def run_update(self) -> bool:
-        """Execute the full update: scrape, save, detect changes, and log."""
+        """Execute the full update: scrape, detect changes in-memory, and save if needed."""
         logger.info("Starting automated course database update...")
 
         # Load old data and hash upfront
@@ -157,33 +202,57 @@ class AutoUpdateSystem:
         old_hash = self._load_hash()
 
         # If old_data exists but no hash file, compute from old_data to avoid false positives
-        if old_data and not self.hash_file.exists():
+        if old_data and not old_hash:
             old_hash = self._calculate_hash(old_data)
             logger.info("Computed old hash from existing data (missing hash file)")
 
-        # Scrape fresh data
-        scraper = MivaCourseScraper()
-        scraper.scrape_all("https://miva.edu.ng")
+        # 1. Scrape fresh data (in memory)
+        try:
+            scraper = MivaCourseScraper()
+            new_full_data = scraper.scrape_all()
+        except ImportError as e:
+            if 'lxml' in str(e) and settings.PARSER == 'lxml':
+                logger.warning("`lxml` not found, falling back to 'html.parser'.")
+                logger.warning("Run `pip install lxml` for better performance.")
+                scraper = MivaCourseScraper(parser='html.parser')
+                new_full_data = scraper.scrape_all()
+            else:
+                raise
+        except Exception as e:
+            logger.error(f"Scraping failed: {e}", exc_info=True)
+            return False  # Exit without changes
 
-        # Save new data
-        scraper.save_to_json(str(self.full_data_file))
-        scraper.save_extension_format(str(self.extension_file))
+        if not new_full_data.get('faculties'):
+            logger.error("Scraping returned no data. Aborting update.")
+            return False
 
-        # Load new data and compute hash
-        new_data = self._load_json(self.extension_file)
-        new_hash = self._calculate_hash(new_data)
+        # 2. Transform to extension format (in memory)
+        new_extension_data = self._build_extension_format(new_full_data)
+        
+        # 3. Compute new hash (in memory)
+        new_hash = self._calculate_hash(new_extension_data)
 
-        logger.info(f"Hash comparison - Old: {old_hash}... | New: {new_hash}...")
+        logger.info(f"Hash comparison - Old: {old_hash[:8]}... | New: {new_hash[:8]}...")
 
-        # Check for changes (first run or actual diff)
+        # 4. Check for changes
         has_changes = bool(not old_data or old_hash != new_hash)
+        
         if has_changes:
-            logger.info("Data hash mismatch detected!")
-            changes = self._detect_changes(old_data, new_data)
+            logger.info("Data hash mismatch detected! Changes found.")
+            changes = self._detect_changes(old_data, new_extension_data)
+            
+            # 5. Save all files
             self._update_changelog(changes)
             self._save_hash(new_hash)
+            self._save_json(new_full_data, self.full_data_file)
+            self._save_json(new_extension_data, self.extension_file)
         else:
-            logger.info("No changes detected in course data")
+            logger.info("No changes detected in course data. Files not updated.")
+            
+            # Optionally update full data file to refresh timestamp
+            if settings.ALWAYS_SAVE_FULL_DATA:
+                self._save_json(new_full_data, self.full_data_file)
+                logger.info("Updated full data file timestamp (no course changes)")
 
         return has_changes
 
@@ -191,15 +260,27 @@ class AutoUpdateSystem:
 def main() -> int:
     """Main entry point: run update and handle GitHub Actions output."""
     try:
+        # Log configuration
+        logger.info("=" * 70)
+        logger.info("MIVA COURSE DATABASE AUTO-UPDATE SYSTEM")
+        logger.info("=" * 70)
+        logger.info(f"Output Directory: {settings.OUTPUT_DIR}")
+        logger.info(f"Parser: {settings.PARSER}")
+        logger.info(f"Max Workers: {settings.MAX_WORKERS}")
+        logger.info(f"Timeout: {settings.TIMEOUT}s")
+        logger.info(f"GitHub Actions: {settings.IS_GITHUB_ACTIONS}")
+        logger.info("=" * 70)
+        
         updater = AutoUpdateSystem()
         has_changes = updater.run_update()
 
         # Output for GitHub Actions
-        if 'GITHUB_OUTPUT' in os.environ:
-            with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as f:
-                f.write(f"has_changes={'true' if has_changes else 'false'}\n")
+        if settings.IS_GITHUB_ACTIONS and settings.GITHUB_OUTPUT_FILE:
+            with open(settings.GITHUB_OUTPUT_FILE, 'a', encoding='utf-8') as f:
+                f.write(f"has_changes={str(has_changes).lower()}\n")
+            logger.info(f"GitHub Actions output written: has_changes={has_changes}")
 
-        logger.info("✓ Automated update completed successfully")
+        logger.info(f"✓ Automated update completed. Changes detected: {has_changes}")
         return 0
 
     except Exception as e:
