@@ -1,26 +1,34 @@
+"""
+MIVA Course Scraper - Main Scraping Module
+==========================================
+Scrapes course data from MIVA Open University website.
+"""
+
 import requests
 from bs4 import BeautifulSoup
-import json
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
 import logging
 import sys
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
-# Configure logging with UTF-8 encoding for Windows compatibility
-file_handler = logging.FileHandler('scraper.log', encoding='utf-8')
+# Import settings
+import settings
+
+# Configure logging
+file_handler = logging.FileHandler(settings.LOG_FILE, encoding=settings.LOG_ENCODING)
 stream_handler = logging.StreamHandler(sys.stdout)
 
 # Set UTF-8 encoding for console output on Windows
 if sys.platform == 'win32':
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding=settings.LOG_ENCODING, errors='replace')
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=getattr(logging, settings.LOG_LEVEL.upper()),
+    format=settings.LOG_FORMAT,
     handlers=[file_handler, stream_handler]
 )
 logger = logging.getLogger(__name__)
@@ -29,43 +37,22 @@ logger = logging.getLogger(__name__)
 class MivaCourseScraper:
     """Scraper for MIVA Open University course data"""
     
-    DEPARTMENT_CODES = {
-        'computer science': 'CSC',
-        'cybersecurity': 'CYB',
-        'data science': 'DTS',
-        'information technology': 'IFT',
-        'software engineering': 'SEN',
-        'business management': 'BUA',
-        'economics': 'ECO',
-        'accounting': 'ACC',
-        'public policy and administration': 'PPA',
-        'entrepreneurship': 'ENT',
-        'criminology and security studies': 'CRS',
-        'mass communication': 'MAC',
-        'communication and media studies': 'MAC',
-        'nursing science': 'NUR',
-        'public health': 'PHH',
-    }
-    
-    def __init__(self, base_url: str = "https://miva.edu.ng", timeout: int = 15, max_workers: int = 5, parser: str = 'lxml'):
-        self.base_url = base_url
-        self.timeout = timeout
-        self.max_workers = max_workers  # Max parallel scraping threads
-        self.parser = parser  # 'lxml' (faster) or 'html.parser' (built-in)
+    def __init__(self, base_url: str = "", timeout: int = 0, max_workers: int = 0, parser: str = ""):
+        self.base_url = base_url or settings.BASE_URL
+        self.timeout = timeout or settings.TIMEOUT
+        self.max_workers = max_workers or settings.MAX_WORKERS
+        self.parser = parser or settings.PARSER
         
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': settings.USER_AGENT
         })
         
         # This dict will be populated and returned
         self.courses_data = {
             "metadata": {
-                "version": "2.0.0",
-                "lastUpdated": "", # Will be set upon completion
-                "academicYear": "2024/2025",
-                "source": base_url,
-                "scraper": "MivaFocus Course Scraper"
+                **settings.METADATA,
+                "lastUpdated": "",  # Will be set upon completion
             },
             "faculties": {}
         }
@@ -79,13 +66,32 @@ class MivaCourseScraper:
         self.RE_FIRST_DIGIT = re.compile(r'(\d+)')
         self.RE_HAS_DIGIT = re.compile(r'\d+')
 
+    def _make_request(self, url: str, retries: int = 0) -> Optional[requests.Response]:
+        """Make HTTP request with retry logic"""
+        retries = retries or settings.MAX_RETRIES
+        
+        for attempt in range(retries):
+            try:
+                response = self.session.get(url, timeout=self.timeout)
+                response.raise_for_status()
+                return response
+            except requests.RequestException as e:
+                if attempt < retries - 1:
+                    logger.warning(f"Request failed (attempt {attempt + 1}/{retries}): {e}")
+                    time.sleep(settings.RETRY_DELAY)
+                else:
+                    logger.error(f"Request failed after {retries} attempts: {e}")
+                    return None
+
     def scrape_faculties_page(self, faculties_url: str) -> List[Dict]:
         """Scrape main faculties page to extract all faculties and departments"""
         logger.info(f"Scraping faculties from: {faculties_url}")
         
+        response = self._make_request(faculties_url)
+        if not response:
+            return []
+        
         try:
-            response = self.session.get(faculties_url, timeout=self.timeout)
-            response.raise_for_status()
             soup = BeautifulSoup(response.content, self.parser)
             
             faculties = []
@@ -124,9 +130,6 @@ class MivaCourseScraper:
             logger.info(f"Successfully scraped {len(faculties)} faculties")
             return faculties
             
-        except requests.RequestException as e:
-            logger.error(f"Network error scraping faculties: {e}")
-            return []
         except Exception as e:
             logger.error(f"Unexpected error scraping faculties: {e}", exc_info=True)
             return []
@@ -135,15 +138,15 @@ class MivaCourseScraper:
         """Extract standardized department code from name or URL"""
         dept_lower = dept_name.lower()
         
-        # Try exact matches first
-        for key, code in self.DEPARTMENT_CODES.items():
+        # Try exact matches first from settings
+        for key, code in settings.DEPARTMENT_CODES.items():
             if key in dept_lower:
                 return code
         
         # Try URL matching
         if url:
             url_lower = url.lower()
-            for key, code in self.DEPARTMENT_CODES.items():
+            for key, code in settings.DEPARTMENT_CODES.items():
                 if key.replace(' ', '-') in url_lower:
                     return code
         
@@ -158,9 +161,11 @@ class MivaCourseScraper:
     def scrape_department_page(self, dept_url: str, dept_name: str) -> Dict:
         """Scrape individual department page for course data"""
         
+        response = self._make_request(dept_url)
+        if not response:
+            raise Exception(f"Failed to fetch {dept_name}")
+        
         try:
-            response = self.session.get(dept_url, timeout=self.timeout)
-            response.raise_for_status()
             soup = BeautifulSoup(response.content, self.parser)
             
             courses_by_level = {}
@@ -187,8 +192,6 @@ class MivaCourseScraper:
             
             return courses_by_level
             
-        except requests.RequestException as e:
-            raise Exception(f"Network error scraping {dept_name}: {e}") from e
         except Exception as e:
             raise Exception(f"Error scraping {dept_name}: {e}") from e
     
@@ -216,6 +219,7 @@ class MivaCourseScraper:
     def _detect_table_semester(self, table, table_index: int) -> Optional[str]:
         """Detect which semester a table belongs to"""
         sem_string = 'semester'
+        
         # Check HTML comments before table
         for sibling in table.previous_siblings:
             if hasattr(sibling, 'string') and sibling.string:
@@ -245,7 +249,12 @@ class MivaCourseScraper:
                 return f'second_{sem_string}'
         
         # Fallback to table position
-        return f'first_{sem_string}' if table_index == 0 else f'second_{sem_string}' if table_index == 1 else None
+        if table_index == 0:
+            return f'first_{sem_string}'
+        elif table_index == 1:
+            return f'second_{sem_string}'
+        else:
+            return None
     
     def _parse_table_courses(self, table) -> List[Dict]:
         """Parse course information from table rows"""
@@ -286,8 +295,10 @@ class MivaCourseScraper:
         
         return courses
     
-    def scrape_all(self, faculties_url: str) -> Dict:
+    def scrape_all(self, faculties_url: Optional[str] = None) -> Dict:
         """Main scraping method - scrapes all faculties and departments concurrently"""
+        faculties_url = faculties_url or settings.FACULTIES_URL
+        
         logger.info("=" * 70)
         logger.info("MIVA OPEN UNIVERSITY COURSE SCRAPER - STARTING")
         logger.info(f"Mode: Concurrent (max_workers={self.max_workers}), Parser: {self.parser}")
@@ -347,7 +358,7 @@ class MivaCourseScraper:
                         logger.error(f"[FAIL] {dept_code} ({dept_name}): {e}")
             # --- End Concurrent Block ---
 
-        # --- Summary Report (decoupled from scraping) ---
+        # --- Summary Report ---
         total_departments = 0
         total_courses = 0
         for faculty_data in self.courses_data['faculties'].values():
