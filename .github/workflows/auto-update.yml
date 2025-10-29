@@ -1,4 +1,4 @@
-ame: Auto Update Course Database
+name: Auto Update Course Database
 
 on:
   # Run every Sunday at 2 AM UTC
