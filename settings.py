@@ -1,52 +1,81 @@
 import os
 from pathlib import Path
 from typing import Dict
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+# ============================================================================
+# HELPER FUNCTIONS FOR ENV VARIABLES
+# ============================================================================
+
+def get_env_bool(key: str) -> bool:
+    """Get boolean from environment variable (required)"""
+    value = os.getenv(key)
+    if value is None:
+        raise ValueError(f"Required environment variable '{key}' is not set")
+    return value.lower() in ('true', '1', 'yes', 'on')
+
+def get_env_int(key: str) -> int:
+    """Get integer from environment variable (required)"""
+    value = os.getenv(key)
+    if value is None:
+        raise ValueError(f"Required environment variable '{key}' is not set")
+    try:
+        return int(value)
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Invalid integer value for '{key}': {value}") from e
+
+def get_env_str(key: str) -> str:
+    """Get string from environment variable (required)"""
+    value = os.getenv(key)
+    if value is None:
+        raise ValueError(f"Required environment variable '{key}' is not set")
+    return value
 
 # ============================================================================
 # BASE CONFIGURATION
 # ============================================================================
 
-BASE_URL =  'https://miva.edu.ng'
-FACULTIES_URL =  'https://miva.edu.ng'
+BASE_URL = get_env_str('BASE_URL')
+FACULTIES_URL = get_env_str('FACULTIES_URL')
 
 # ============================================================================
 # SCRAPING CONFIGURATION
 # ============================================================================
 
 # Request timeout in seconds
-TIMEOUT = 15
+TIMEOUT = get_env_int('TIMEOUT')
 
 # Maximum concurrent threads for scraping
-MAX_WORKERS =  5
+MAX_WORKERS = get_env_int('MAX_WORKERS')
 
 # HTML Parser: 'lxml' (faster) or 'html.parser' (built-in)
-PARSER = 'lxml'
+PARSER = get_env_str('PARSER')
 
 # User agent for requests
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-
+USER_AGENT = get_env_str('USER_AGENT')
 
 # Retry configuration
-MAX_RETRIES =  3
-RETRY_DELAY =  2  # seconds
+MAX_RETRIES = get_env_int('MAX_RETRIES')
+RETRY_DELAY = get_env_int('RETRY_DELAY')  # seconds
 
 # ============================================================================
 # OUTPUT CONFIGURATION
 # ============================================================================
 
 # Output directory for all generated files
-OUTPUT_DIR = Path('.').resolve()
+OUTPUT_DIR = Path(get_env_str('OUTPUT_DIR')).resolve()
 
 # Output file names
-FULL_DATA_FILENAME = 'miva_courses_full.json'
-EXTENSION_FILENAME = 'courses_database.json'
-HASH_FILENAME =  '.courses_hash.txt'
-CHANGELOG_FILENAME = 'CHANGELOG.md'
+FULL_DATA_FILENAME = get_env_str('FULL_DATA_FILENAME')
+EXTENSION_FILENAME = get_env_str('EXTENSION_FILENAME')
+CHANGELOG_FILENAME = get_env_str('CHANGELOG_FILENAME')
 
 # Computed full paths
 FULL_DATA_FILE = OUTPUT_DIR / FULL_DATA_FILENAME 
 EXTENSION_FILE = OUTPUT_DIR / EXTENSION_FILENAME
-HASH_FILE = OUTPUT_DIR / HASH_FILENAME
 CHANGELOG_FILE = OUTPUT_DIR / CHANGELOG_FILENAME
 
 # ============================================================================
@@ -54,20 +83,20 @@ CHANGELOG_FILE = OUTPUT_DIR / CHANGELOG_FILENAME
 # ============================================================================
 
 # Log file configuration
-LOG_FILE =  'scraper.log'
-LOG_LEVEL = 'INFO'  # DEBUG, INFO, WARNING, ERROR
-LOG_FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
-LOG_ENCODING = 'utf-8'
+LOG_FILE = get_env_str('LOG_FILE')
+LOG_LEVEL = get_env_str('LOG_LEVEL')  # DEBUG, INFO, WARNING, ERROR
+LOG_FORMAT = get_env_str('LOG_FORMAT')
+LOG_ENCODING = get_env_str('LOG_ENCODING')
 
 # ============================================================================
 # METADATA CONFIGURATION
 # ============================================================================
 
 METADATA = {
-    'version': '1.0.0',
-    'academicYear': '2024/2025',
+    'version': get_env_str('METADATA_VERSION'),
+    'academicYear': get_env_str('METADATA_ACADEMIC_YEAR'),
     'source': BASE_URL,
-    'scraper': 'MivaFocus Course Scraper'
+    'scraper': get_env_str('METADATA_SCRAPER')
 }
 
 # ============================================================================
@@ -104,10 +133,10 @@ DEPARTMENT_CODES: Dict[str, str] = {
 # ============================================================================
 
 # Whether to create changelog entries for first run
-CREATE_INITIAL_CHANGELOG = True
+CREATE_INITIAL_CHANGELOG = get_env_bool('CREATE_INITIAL_CHANGELOG')
 
 # Whether to save files even when no changes detected (updates timestamp)
-ALWAYS_SAVE_FULL_DATA = True
+ALWAYS_SAVE_FULL_DATA = get_env_bool('ALWAYS_SAVE_FULL_DATA')
 
 # ============================================================================
 # GITHUB ACTIONS CONFIGURATION
@@ -155,14 +184,22 @@ def validate_config():
 # INITIALIZATION
 # ============================================================================
 
-# Ensure output directory exists on import
-ensure_output_directory()
+try:
+    # Ensure output directory exists on import
+    ensure_output_directory()
 
-# Validate configuration
-config_errors = validate_config()
-if config_errors:
+    # Validate configuration
+    config_errors = validate_config()
+    if config_errors:
+        import sys
+        print("Configuration errors found:", file=sys.stderr)
+        for error in config_errors:
+            print(f"  - {error}", file=sys.stderr)
+        sys.exit(1)
+        
+except ValueError as e:
     import sys
-    print("Configuration errors found:", file=sys.stderr)
-    for error in config_errors:
-        print(f"  - {error}", file=sys.stderr)
+    print(f"Configuration error: {e}", file=sys.stderr)
+    print("\nMake sure you have a .env file with all required variables.", file=sys.stderr)
+    print("See .env.example for reference.", file=sys.stderr)
     sys.exit(1)

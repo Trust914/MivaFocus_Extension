@@ -21,18 +21,12 @@ class AutoUpdateSystem:
     """Handles automated course database updates with change detection and changelog management."""
 
     def __init__(self, output_dir: Optional[Path] = None):
-        """
-        Initialize update system with settings from config file or override parameter.
-        
-        Args:
-            output_dir: Override OUTPUT_DIR from settings
-        """
+
         self.output_dir = output_dir or settings.OUTPUT_DIR
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.full_data_file = settings.FULL_DATA_FILE
         self.extension_file = settings.EXTENSION_FILE
-        self.hash_file = settings.HASH_FILE
         self.changelog_file = settings.CHANGELOG_FILE
 
     def _load_json(self, file_path: Path) -> Dict[str, Any]:
@@ -41,7 +35,7 @@ class AutoUpdateSystem:
             logger.info(f"No previous data found at {file_path} (first run)")
             return {}
         try:
-            with file_path.open('r', encoding='utf-8') as f:
+            with file_path.open('r', encoding=settings.LOG_ENCODING) as f:
                 data = json.load(f)
             logger.info(f"Loaded previous course data from {file_path}")
             return data
@@ -52,7 +46,7 @@ class AutoUpdateSystem:
     def _save_json(self, data: Dict[str, Any], file_path: Path) -> None:
         """Save dict to JSON file."""
         try:
-            with file_path.open('w', encoding='utf-8') as f:
+            with file_path.open('w', encoding=settings.LOG_ENCODING) as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             logger.info(f"Saved data to {file_path}")
         except IOError as e:
@@ -77,21 +71,7 @@ class AutoUpdateSystem:
         """Calculate SHA-256 hash of *departments* only (stable part) for change detection."""
         stable_data = data.get('departments', {})  # Exclude volatile metadata
         json_str = json.dumps(stable_data, sort_keys=True)
-        return hashlib.sha256(json_str.encode('utf-8')).hexdigest()
-
-    def _load_hash(self) -> str:
-        """Load previous data hash from file."""
-        if self.hash_file.exists():
-            hash_val = self.hash_file.read_text(encoding='utf-8').strip()
-            logger.debug(f"Loaded hash from {self.hash_file}: {hash_val[:8]}...")
-            return hash_val
-        logger.info(f"No previous hash found at {self.hash_file}")
-        return ""
-
-    def _save_hash(self, hash_value: str) -> None:
-        """Save hash to file."""
-        self.hash_file.write_text(hash_value, encoding='utf-8')
-        logger.info(f"Saved new hash to {self.hash_file}")
+        return hashlib.sha256(json_str.encode(settings.LOG_ENCODING)).hexdigest()
 
     def _detect_changes(self, old_data: Dict[str, Any], new_data: Dict[str, Any]) -> Dict[str, Any]:
         """Detect and summarize changes between old and new course data."""
@@ -180,7 +160,7 @@ class AutoUpdateSystem:
 
         # Prepend to existing or create new
         if self.changelog_file.exists():
-            content = self.changelog_file.read_text(encoding='utf-8')
+            content = self.changelog_file.read_text(encoding=settings.LOG_ENCODING)
             # Find the first H2 to insert after the H1
             first_h2 = content.find('\n## ')
             if first_h2 != -1:
@@ -190,21 +170,19 @@ class AutoUpdateSystem:
         else:
             content = "# Course Database Changelog\n" + entry
 
-        self.changelog_file.write_text(content, encoding='utf-8')
+        self.changelog_file.write_text(content, encoding=settings.LOG_ENCODING)
         logger.info(f"Changelog updated: {self.changelog_file}")
 
     def run_update(self) -> bool:
         """Execute the full update: scrape, detect changes in-memory, and save if needed."""
         logger.info("Starting automated course database update...")
 
-        # Load old data and hash upfront
+        # Load old data
         old_data = self._load_json(self.extension_file)
-        old_hash = self._load_hash()
-
-        # If old_data exists but no hash file, compute from old_data to avoid false positives
-        if old_data and not old_hash:
-            old_hash = self._calculate_hash(old_data)
-            logger.info("Computed old hash from existing data (missing hash file)")
+        
+        # Get the old hash *from the data itself*
+        # Defaults to "" if not found (first run)
+        old_hash = old_data.get('metadata', {}).get('content_hash', '')
 
         # 1. Scrape fresh data (in memory)
         try:
@@ -220,7 +198,7 @@ class AutoUpdateSystem:
                 raise
         except Exception as e:
             logger.error(f"Scraping failed: {e}", exc_info=True)
-            return False  # Exit without changes
+            return False 
 
         if not new_full_data.get('faculties'):
             logger.error("Scraping returned no data. Aborting update.")
@@ -243,13 +221,17 @@ class AutoUpdateSystem:
             
             # 5. Save all files
             self._update_changelog(changes)
-            self._save_hash(new_hash)
+            
+            # Add the new hash to the metadata before saving
+            new_extension_data.setdefault('metadata', {})['content_hash'] = new_hash
+            
+            # Save the updated data
             self._save_json(new_full_data, self.full_data_file)
-            self._save_json(new_extension_data, self.extension_file)
+            self._save_json(new_extension_data, self.extension_file) # This now saves the hash too
         else:
             logger.info("No changes detected in course data. Files not updated.")
             
-            # Optionally update full data file to refresh timestamp
+            # update full data file to refresh timestamp
             if settings.ALWAYS_SAVE_FULL_DATA:
                 self._save_json(new_full_data, self.full_data_file)
                 logger.info("Updated full data file timestamp (no course changes)")
@@ -276,7 +258,7 @@ def main() -> int:
 
         # Output for GitHub Actions
         if settings.IS_GITHUB_ACTIONS and settings.GITHUB_OUTPUT_FILE:
-            with open(settings.GITHUB_OUTPUT_FILE, 'a', encoding='utf-8') as f:
+            with open(settings.GITHUB_OUTPUT_FILE, 'a', encoding=settings.LOG_ENCODING) as f:
                 f.write(f"has_changes={str(has_changes).lower()}\n")
             logger.info(f"GitHub Actions output written: has_changes={has_changes}")
 
