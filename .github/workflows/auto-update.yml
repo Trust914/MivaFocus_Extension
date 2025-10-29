@@ -1,21 +1,16 @@
 name: Auto Update Course Database
 
 on:
-  # Run every Sunday at 2 AM UTC
   schedule:
     - cron: '0 2 * * 0'
-  
-  # Allow manual trigger
   workflow_dispatch:
-  
-  # Run on push to master (for testing the scraper code, not for committing data)
   push:
     branches:
       - master
     paths:
       - 'scrape_courses.py'
       - 'auto_update.py'
-      - '.github/workflows/auto_update.yml'
+      - 'settings.py'
 
 jobs:
   update-courses:
@@ -25,8 +20,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Use a personal access token (PAT) if you need to trigger
-          # other workflows. GITHUB_TOKEN won't.
           token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
@@ -40,51 +33,42 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4 lxml
       
-      - name: Run course scraper and change detection
+      - name: Run course scraper
         id: scrape
         run: |
           python auto_update.py
+          echo "Scraper finished with exit code: $?"
+          ls -la *.json *.txt *.md 2>/dev/null || echo "No output files found"
       
-      #
-      # This step is the most important change.
-      # It uses the output from the 'scrape' step (which ran auto_update.py).
-      # It also prevents commit loops by checking that the event was not a 'push'.
-      #
       - name: Commit and push changes
-        if: steps.scrape.outputs.has_changes == 'true' && github.event_name != 'push'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add courses_database.json miva_courses_full.json .courses_hash.txt
           
-          # Only add changelog if it exists and was modified
-          if [ -f CHANGELOG.md ] && ! git diff --quiet CHANGELOG.md; then
-                git add CHANGELOG.md
-          fi
+          # Add all generated files
+          git add -f courses_database.json miva_courses_full.json .courses_hash.txt CHANGELOG.md 2>/dev/null || true
           
-          # Commit only if there are staged changes
-          if ! git diff --cached --quiet; then
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected, committing..."
             git commit -m "chore: auto-update course database [skip ci]"
             git push
-          else
-            echo "No changes to commit."
+            echo "has_changes=true" >> $GITHUB_OUTPUT
           fi
+        id: commit
       
-      - name: Upload artifacts (on change or failure)
-        if: steps.scrape.outputs.has_changes == 'true' || failure()
+      - name: Upload artifacts (always)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: course-data-logs
+          name: course-data-${{ github.run_number }}
           path: |
             courses_database.json
             miva_courses_full.json
             CHANGELOG.md
             scraper.log
+            .courses_hash.txt
           retention-days: 30
-      
-      - name: Notify on failure
-        if: failure() && github.event_name != 'push'
-        run: |
-          echo "::error::Course update failed! Check logs."
-          # Consider adding a more robust notification action here
-          # e.g., peter-evans/create-issue-on-failure
