@@ -11,6 +11,7 @@ on:
       - 'scrape_courses.py'
       - 'auto_update.py'
       - 'settings.py'
+      - 'requirements.txt'
 
 jobs:
   update-courses:
@@ -31,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests beautifulsoup4 lxml python-dotenv
+          pip install -r requirements.txt
       
       - name: Run course scraper
         id: scrape
@@ -106,7 +107,7 @@ jobs:
         id: commit
       
       - name: Upload artifacts (always)
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: course-data-${{ github.run_number }}
@@ -115,5 +116,4 @@ jobs:
             miva_courses_full.json
             CHANGELOG.md
             scraper.log
-            .courses_hash.txt
           retention-days: 30
