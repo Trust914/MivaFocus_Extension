@@ -83,8 +83,15 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Add all generated files
-          git add -f courses_database.json miva_courses_full.json .courses_hash.txt CHANGELOG.md 2>/dev/null || true
+          # Add all generated files one by one to avoid errors
+          # The -f flag forces adding them even if they are in .gitignore
+          # The '|| true' part ensures that if a file doesn't exist,
+          # the step doesn't fail, and it moves to the next file.
+          echo "Staging generated files..."
+          git add -f courses_database.json || true
+          git add -f miva_courses_full.json || true
+          git add -f .courses_hash.txt || true
+          git add -f CHANGELOG.md || true
           
           # Check if there are changes to commit
           if git diff --staged --quiet; then
