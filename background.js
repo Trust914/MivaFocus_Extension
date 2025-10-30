@@ -1,9 +1,3 @@
-/**
- * MivaFocus Background Service Worker
- * Handles extension lifecycle and ensures content script is loaded
- * Updated to support department-only onboarding
- */
-
 // Install event
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[MivaFocus Background] Extension installed/updated:', details.reason);
@@ -18,7 +12,7 @@ chrome.runtime.onInstalled.addListener((details) => {
         filterEnabled: false,
         filterLevel: null,
         filterSemester: null,
-        showStats: true,
+        showStats: false,
         onboardingComplete: false
       }
     });

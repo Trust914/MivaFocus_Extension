@@ -42,7 +42,7 @@ class MivaFocusFilter {
       })();
       return true;
     });
-    
+
     try {
       await this.loadUserSettings();
       
@@ -60,6 +60,7 @@ class MivaFocusFilter {
         await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
       }
       
+      // Always inject UI to show enable/disable button
       this.injectUI();
       this.extractLMSCourses();
       this.observeDOMChanges();
@@ -240,9 +241,7 @@ class MivaFocusFilter {
         });
       }
     });
-
-    // console.log(`[MivaFocus] Courses: ${this.lmsCourses.map(c => c.title).join(' | ')}`);
-
+    
     console.log(`[MivaFocus] Extracted ${this.lmsCourses.length} courses from LMS`);
   }
 
@@ -304,7 +303,11 @@ class MivaFocusFilter {
   }
 
   normalizeTitle(title) {
-    return title.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+    return title
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   injectUI() {
@@ -327,12 +330,13 @@ class MivaFocusFilter {
     const controlContainer = document.createElement('div');
     controlContainer.id = 'mivafocus-control-bar';
     controlContainer.className = 'd-flex align-items-center';
-    controlContainer.style.marginLeft = '1rem';
+    controlContainer.style.marginLeft = '.1rem';
     controlContainer.innerHTML = `
       <div class="d-flex flex-wrap align-items-center">
-        <div class="dropdown">
+        
+        <div id="mf-filter-dropdown-container" class="dropdown ml-2" style="display: ${this.userSettings.filterEnabled ? 'block' : 'none'};">
           <button id="mivafocus-filter-dropdown" type="button" class="btn dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-label="MivaFocus filter drop-down menu">
-            <span>MivaFocus Filter</span>
+            <span>Filter Courses</span>
           </button>
           <ul class="dropdown-menu" aria-labelledby="mivafocus-filter-dropdown">
             <li class="dropdown-item d-flex flex-column p-3" style="width: 300px;">
@@ -355,16 +359,6 @@ class MivaFocusFilter {
           </ul>
         </div>
       </div>
-      <!--
-        <button id="mf-toggle-filter" class="btn ${this.userSettings.filterEnabled ? 'btn-danger' : 'btn-primary'} ml-2">
-          ${this.userSettings.filterEnabled ? 'Disable Filter' : 'Enable Filter'}
-        </button>
-        <div id="mf-stats" class="d-flex align-items-center ml-2 ${this.userSettings.showStats ? '' : 'd-none'}" style="font-size: 0.875rem; color: #64748b;">
-          <span>Visible: <strong id="mf-visible-count" style="color: #059669;">0</strong></span>
-          <span style="margin: 0 0.5rem;">|</span>
-          <span>Hidden: <strong id="mf-hidden-count" style="color: #dc2626;">0</strong></span>
-        </div>
-      -->
     `;
 
     navSearchSort.appendChild(controlContainer);
@@ -410,9 +404,20 @@ class MivaFocusFilter {
           </svg>
           <span>MivaFocus</span>
         </div>
+        <!-- 
+          <button id="mf-toggle-filter" style="
+            background: ${this.userSettings.filterEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)'}; 
+            color: ${this.userSettings.filterEnabled ? 'white' : '#1e293b'}; 
+            border: none; padding: 0.625rem 1.25rem; border-radius: 8px; 
+            cursor: pointer; font-size: 0.875rem; font-weight: 600; 
+            transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            ${this.userSettings.filterEnabled ? '✕ Disable Filter' : '✓ Enable Filter'}
+          </button>
+        -->
         
         <!-- Filter Controls -->
-        <div style="display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <div id="mf-filter-dropdown-container" style="display: ${this.userSettings.filterEnabled ? 'flex' : 'none'}; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2">
             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
           </svg>
@@ -431,41 +436,10 @@ class MivaFocusFilter {
           </select>
         </div>
       </div>
-
-      <!--
-      <div style="display: flex; align-items: center; gap: 1rem;">
-          <button id="mf-toggle-filter" style="
-            background: ${this.userSettings.filterEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)'}; 
-            color: ${this.userSettings.filterEnabled ? 'white' : '#1e293b'}; 
-            border: none; padding: 0.625rem 1.25rem; border-radius: 8px; 
-            cursor: pointer; font-size: 0.875rem; font-weight: 600; 
-            transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-          ">
-            ${this.userSettings.filterEnabled ? '✕ Disable Filter' : '✓ Enable Filter'}
-          </button>
-          
-          <div style="
-            display: ${this.userSettings.showStats ? 'flex' : 'none'}; 
-            align-items: center; gap: 1rem; padding: 0.5rem 1rem; 
-            background: rgba(255,255,255,0.95); border-radius: 8px; 
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1); font-size: 0.875rem;
-          ">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <span style="color: #64748b;">Visible:</span>
-              <strong id="mf-visible-count" style="color: #059669; font-size: 1rem;">0</strong>
-            </div>
-            <div style="width: 1px; height: 20px; background: #e2e8f0;"></div>
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <span style="color: #64748b;">Hidden:</span>
-              <strong id="mf-hidden-count" style="color: #dc2626; font-size: 1rem;">0</strong>
-            </div>
-          </div>
-        </div>
-      -->
     `;
 
     document.body.insertBefore(controlBar, document.body.firstChild);
-    document.body.style.paddingTop = '70px';
+    document.body.style.paddingTop = '50px';
     
     // Set initial dropdown values
     const levelSelect = document.getElementById('mf-filter-level');
@@ -509,7 +483,6 @@ class MivaFocusFilter {
         }
       });
     }
-
   }
 
   async toggleFilter() {
@@ -517,10 +490,27 @@ class MivaFocusFilter {
     await this.saveUserSettings();
     
     const toggleBtn = document.getElementById('mf-toggle-filter');
+    const dropdownContainer = document.getElementById('mf-filter-dropdown-container');
+    
     if (toggleBtn) {
       const isEnabled = this.userSettings.filterEnabled;
-      toggleBtn.textContent = isEnabled ? 'Disable Filter' : 'Enable Filter';
-      toggleBtn.className = `btn ${isEnabled ? 'btn-danger' : 'btn-primary'} ml-2`;
+      
+      // Update button text and style
+      if (toggleBtn.classList) {
+        // Bootstrap version
+        toggleBtn.textContent = isEnabled ? 'Disable Filter' : 'Enable Filter';
+        toggleBtn.className = `btn ${isEnabled ? 'btn-danger' : 'btn-primary'}`;
+      } else {
+        // Fallback UI style update
+        toggleBtn.textContent = isEnabled ? '✕ Disable Filter' : '✓ Enable Filter';
+        toggleBtn.style.background = isEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)';
+        toggleBtn.style.color = isEnabled ? 'white' : '#1e293b';
+      }
+    }
+    
+    // Show/hide dropdown immediately
+    if (dropdownContainer) {
+      dropdownContainer.style.display = this.userSettings.filterEnabled ? (dropdownContainer.classList ? 'block' : 'flex') : 'none';
     }
 
     await this.applyFilter();
@@ -528,6 +518,8 @@ class MivaFocusFilter {
 
   async handleSettingsUpdate(settings) {
     const oldDept = this.userSettings.department;
+    const oldEnabled = this.userSettings.filterEnabled;
+    
     this.userSettings = { ...this.userSettings, ...settings };
     await this.saveUserSettings();
     
@@ -540,17 +532,35 @@ class MivaFocusFilter {
         const overlay = document.getElementById('mivafocus-onboarding-overlay');
         if (overlay) overlay.remove();
         
+        // Remove old UI if exists
+        this.removeUI();
+        
+        // Inject new UI
         this.injectUI();
         this.extractLMSCourses();
       }
     }
     
-    // Update UI elements
+    // Update UI elements if they exist
     const toggleBtn = document.getElementById('mf-toggle-filter');
+    const dropdownContainer = document.getElementById('mf-filter-dropdown-container');
+    
     if (toggleBtn) {
       const isEnabled = this.userSettings.filterEnabled;
-      toggleBtn.textContent = isEnabled ? 'Disable Filter' : 'Enable Filter';
-      toggleBtn.className = `btn ${isEnabled ? 'btn-danger' : 'btn-primary'} ml-2`;
+      
+      if (toggleBtn.classList) {
+        toggleBtn.textContent = isEnabled ? 'Disable Filter' : 'Enable Filter';
+        toggleBtn.className = `btn ${isEnabled ? 'btn-danger' : 'btn-primary'}`;
+      } else {
+        toggleBtn.textContent = isEnabled ? '✕ Disable Filter' : '✓ Enable Filter';
+        toggleBtn.style.background = isEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)';
+        toggleBtn.style.color = isEnabled ? 'white' : '#1e293b';
+      }
+    }
+    
+    // Show/hide dropdown based on filter state
+    if (dropdownContainer) {
+      dropdownContainer.style.display = this.userSettings.filterEnabled ? (dropdownContainer.classList ? 'block' : 'flex') : 'none';
     }
     
     const levelSelect = document.getElementById('mf-filter-level');
@@ -562,15 +572,15 @@ class MivaFocusFilter {
     // Apply filter with new settings
     if (this.userSettings.filterEnabled) {
       await this.applyFilter();
+    } else if (oldEnabled !== this.userSettings.filterEnabled) {
+      // If filter was just disabled, show all courses
+      await this.applyFilter();
     }
   }
 
   async handleReset() {
-    // Remove UI
-    const controlBar = document.getElementById('mivafocus-control-bar');
-    if (controlBar) {
-      controlBar.remove();
-    }
+    // Remove UI completely
+    this.removeUI();
     document.body.style.paddingTop = '';
     
     // Reset state
@@ -579,14 +589,30 @@ class MivaFocusFilter {
       filterEnabled: false,
       filterLevel: null,
       filterSemester: null,
-      showStats: true,
+      showStats: false,
       onboardingComplete: false
     };
+    
+    await this.saveUserSettings();
+    
     this.departmentCourses = null;
     this.initialized = false;
     
+    // Show all courses
+    this.lmsCourses.forEach(course => {
+      course.element.style.removeProperty('display');
+      course.element.removeAttribute('data-mivafocus-filtered');
+    });
+    
     // Show onboarding prompt
     this.showOnboardingPrompt();
+  }
+
+  removeUI() {
+    const controlBar = document.getElementById('mivafocus-control-bar');
+    if (controlBar) {
+      controlBar.remove();
+    }
   }
 
   async applyFilter() {
@@ -808,18 +834,6 @@ class MivaFocusFilter {
   isNumericToken(word) {
     // Check if word is a number or roman numeral
     return /^\d+$/.test(word) || /^i{1,3}v?$|^iv$|^v$|^vi{1,3}$|^ix$|^x$/i.test(word);
-  }
-
-  fuzzyMatch(str1, str2) {
-    const words1 = str1.split(/\s+/).filter(w => w.length > 3);
-    const words2 = str2.split(/\s+/).filter(w => w.length > 3);
-    
-    if (words1.length < 2 || words2.length < 2) return false;
-    
-    const matchingWords = words1.filter(w => words2.includes(w));
-    const matchRatio = matchingWords.length / Math.min(words1.length, words2.length);
-    
-    return matchRatio >= 0.6;
   }
 
   updateStatsDisplay() {
