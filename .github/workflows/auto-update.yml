@@ -38,37 +38,37 @@ jobs:
         id: scrape
         env:
           # Base Configuration
-          BASE_URL: ${{ secrets.BASE_URL  }}
-          FACULTIES_URL: ${{ secrets.FACULTIES_URL  }}
+          BASE_URL: ${{ vars.BASE_URL  }}
+          FACULTIES_URL: ${{ vars.FACULTIES_URL  }}
           
           # Scraping Configuration
-          TIMEOUT: ${{ secrets.TIMEOUT }}
-          MAX_WORKERS: ${{ secrets.MAX_WORKERS}}
-          PARSER: ${{ secrets.PARSER }}
-          MAX_RETRIES: ${{ secrets.MAX_RETRIES}}
-          RETRY_DELAY: ${{ secrets.RETRY_DELAY}}
-          USER_AGENT: ${{ secrets.USER_AGENT }}
+          TIMEOUT: ${{ vars.TIMEOUT }}
+          MAX_WORKERS: ${{ vars.MAX_WORKERS}}
+          PARSER: ${{ vars.PARSER }}
+          MAX_RETRIES: ${{ vars.MAX_RETRIES}}
+          RETRY_DELAY: ${{ vars.RETRY_DELAY}}
+          USER_AGENT: ${{ vars.USER_AGENT }}
           
           # Output Configuration
-          OUTPUT_DIR: ${{ secrets.OUTPUT_DIR }}
-          FULL_DATA_FILENAME: ${{ secrets.FULL_DATA_FILENAME }}
-          EXTENSION_FILENAME: ${{ secrets.EXTENSION_FILENAME }}
-          CHANGELOG_FILENAME: ${{ secrets.CHANGELOG_FILENAME }}
+          OUTPUT_DIR: ${{ vars.OUTPUT_DIR }}
+          FULL_DATA_FILENAME: ${{ vars.FULL_DATA_FILENAME }}
+          EXTENSION_FILENAME: ${{ vars.EXTENSION_FILENAME }}
+          CHANGELOG_FILENAME: ${{ vars.CHANGELOG_FILENAME }}
           
           # Logging Configuration
-          LOG_FILE: ${{ secrets.LOG_FILE  }}
-          LOG_LEVEL: ${{ secrets.LOG_LEVEL }}
-          LOG_FORMAT: ${{ secrets.LOG_FORMAT }}
-          LOG_ENCODING: ${{ secrets.LOG_ENCODING}}
+          LOG_FILE: ${{ vars.LOG_FILE  }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          LOG_FORMAT: ${{ vars.LOG_FORMAT }}
+          LOG_ENCODING: ${{ vars.LOG_ENCODING}}
           
           # Metadata Configuration
-          METADATA_VERSION: ${{ secrets.METADATA_VERSION }}
-          METADATA_ACADEMIC_YEAR: ${{ secrets.METADATA_ACADEMIC_YEAR }}
-          METADATA_SCRAPER: ${{ secrets.METADATA_SCRAPER }}
+          METADATA_VERSION: ${{ vars.METADATA_VERSION }}
+          METADATA_ACADEMIC_YEAR: ${{ vars.METADATA_ACADEMIC_YEAR }}
+          METADATA_SCRAPER: ${{ vars.METADATA_SCRAPER }}
           
           # Change Detection Configuration
-          CREATE_INITIAL_CHANGELOG: ${{ secrets.CREATE_INITIAL_CHANGELOG }}
-          ALWAYS_SAVE_FULL_DATA: ${{ secrets.ALWAYS_SAVE_FULL_DATA }}
+          CREATE_INITIAL_CHANGELOG: ${{ vars.CREATE_INITIAL_CHANGELOG }}
+          ALWAYS_SAVE_FULL_DATA: ${{ vars.ALWAYS_SAVE_FULL_DATA }}
         run: |
           # Exit immediately if a command exits with a non-zero status.
           set -e
