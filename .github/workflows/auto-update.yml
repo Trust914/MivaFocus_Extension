@@ -69,11 +69,16 @@ jobs:
           CREATE_INITIAL_CHANGELOG: ${{ secrets.CREATE_INITIAL_CHANGELOG }}
           ALWAYS_SAVE_FULL_DATA: ${{ secrets.ALWAYS_SAVE_FULL_DATA }}
         run: |
+          # Exit immediately if a command exits with a non-zero status.
+          set -e
+          
           python auto_update.py
           echo "Scraper finished with exit code: $?"
           ls -la *.json *.txt *.md 2>/dev/null || echo "No output files found"
       
       - name: Commit and push changes
+        # FIX: Only run this step if the previous "scrape" step succeeded
+        if: steps.scrape.outcome == 'success'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
