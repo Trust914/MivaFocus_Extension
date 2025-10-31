@@ -70,7 +70,7 @@ OUTPUT_DIR = Path(get_env_str('OUTPUT_DIR')).resolve()
 
 # Output file names
 FULL_DATA_FILENAME = get_env_str('FULL_DATA_FILENAME')
-EXTENSION_FILENAME = get_env_str('EXTENSION_FILENAME')
+# EXTENSION_FILENAME = get_env_str('EXTENSION_FILENAME')
 CHANGELOG_FILENAME = get_env_str('CHANGELOG_FILENAME')
 
 # Computed full paths
