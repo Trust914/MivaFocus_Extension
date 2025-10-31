@@ -244,9 +244,9 @@ class MivaCourseScraper:
         if first_row:
             row_text = first_row.get_text(strip=True).lower()
             if '1st semester' in row_text or 'first semester' in row_text:
-                return f'first_{sem_string}'
+                    return f'first_{sem_string}'
             elif '2nd semester' in row_text or 'second semester' in row_text:
-                return f'second_{sem_string}'
+                    return f'second_{sem_string}'
         
         # Fallback to table position
         if table_index == 0:
@@ -378,6 +378,6 @@ class MivaCourseScraper:
         logger.info("=" * 70)
         
         # Set final timestamp
-        self.courses_data['metadata']['lastUpdated'] = datetime.now().isoformat()
+        self.courses_data['metadata']['lastUpdated'] = datetime.now().strftime("%B %d, %Y %H:%M:%S")
         
         return self.courses_data
