@@ -26,7 +26,6 @@ class AutoUpdateSystem:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         self.full_data_file = settings.FULL_DATA_FILE
-        self.extension_file = settings.EXTENSION_FILE
         self.changelog_file = settings.CHANGELOG_FILE
 
     def _load_json(self, file_path: Path) -> Dict[str, Any]:
@@ -52,26 +51,24 @@ class AutoUpdateSystem:
         except IOError as e:
             logger.error(f"Failed to save {file_path}: {e}")
 
-    def _build_extension_format(self, full_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert full data structure to flattened extension format in memory."""
-        flattened = {
-            "metadata": full_data.get('metadata', {}),
-            "departments": {}
-        }
-        
-        for faculty_data in full_data.get('faculties', {}).values():
-            for dept_code, dept_data in faculty_data.get('departments', {}).items():
-                flattened['departments'][dept_code] = {
-                    'name': dept_data['name'],
-                    'courses': dept_data['courses']
-                }
-        return flattened
-
     def _calculate_hash(self, data: Dict[str, Any]) -> str:
-        """Calculate SHA-256 hash of *departments* only (stable part) for change detection."""
-        stable_data = data.get('departments', {})  # Exclude volatile metadata
+        """Calculate SHA-256 hash of *faculties* only (stable part) for change detection."""
+        # Hashes the 'faculties' key from the full data structure
+        stable_data = data.get('faculties', {})  # Exclude volatile metadata
         json_str = json.dumps(stable_data, sort_keys=True)
         return hashlib.sha256(json_str.encode(settings.LOG_ENCODING)).hexdigest()
+
+    def _get_flat_depts(self, full_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extracts a flat department dictionary for comparison."""
+        flat_depts = {}
+        for faculty_data in full_data.get('faculties', {}).values():
+            for dept_code, dept_data in faculty_data.get('departments', {}).items():
+                # We only need the part used for comparison: name and courses
+                flat_depts[dept_code] = {
+                    'name': dept_data.get('name'),
+                    'courses': dept_data.get('courses', {})
+                }
+        return flat_depts
 
     def _detect_changes(self, old_data: Dict[str, Any], new_data: Dict[str, Any]) -> Dict[str, Any]:
         """Detect and summarize changes between old and new course data."""
@@ -82,8 +79,9 @@ class AutoUpdateSystem:
             'modified_courses': 0,  # Tracks removals or modifications
         }
 
-        old_depts = old_data.get('departments', {})
-        new_depts = new_data.get('departments', {})
+        # Use the helper to get the comparable part from the full data
+        old_depts = self._get_flat_depts(old_data)
+        new_depts = self._get_flat_depts(new_data)
 
         # Handle first run: all new
         if not old_depts:
@@ -158,7 +156,7 @@ class AutoUpdateSystem:
         if changes['modified_courses']:
             entry += f"### Courses Modified/Removed (Approx.): {changes['modified_courses']}\n\n"
 
-        # Prepend to existing or create new
+        # Append to existing file or create new
         if self.changelog_file.exists():
             content = self.changelog_file.read_text(encoding=settings.LOG_ENCODING)
             # Find the first H2 to insert after the H1
@@ -177,8 +175,8 @@ class AutoUpdateSystem:
         """Execute the full update: scrape, detect changes in-memory, and save if needed."""
         logger.info("Starting automated course database update...")
 
-        # Load old data
-        old_data = self._load_json(self.extension_file)
+        # Load old data from the full data file
+        old_data = self._load_json(self.full_data_file)
         
         # Get the old hash *from the data itself*
         # Defaults to "" if not found (first run)
@@ -202,13 +200,9 @@ class AutoUpdateSystem:
 
         if not new_full_data.get('faculties'):
             logger.error("Scraping returned no data. Aborting update.")
-            return False
-
-        # 2. Transform to extension format (in memory)
-        new_extension_data = self._build_extension_format(new_full_data)
-        
-        # 3. Compute new hash (in memory)
-        new_hash = self._calculate_hash(new_extension_data)
+            return False        
+        # 3. Compute new hash (in memory) from the full data
+        new_hash = self._calculate_hash(new_full_data)
 
         logger.info(f"Hash comparison - Old: {old_hash[:8]}... | New: {new_hash[:8]}...")
 
@@ -217,17 +211,18 @@ class AutoUpdateSystem:
         
         if has_changes:
             logger.info("Data hash mismatch detected! Changes found.")
-            changes = self._detect_changes(old_data, new_extension_data)
+            # Detect changes between the full data structures
+            changes = self._detect_changes(old_data, new_full_data)
             
             # 5. Save all files
             self._update_changelog(changes)
             
             # Add the new hash to the metadata before saving
-            new_extension_data.setdefault('metadata', {})['content_hash'] = new_hash
+            new_full_data.setdefault('metadata', {})['content_hash'] = new_hash
             
-            # Save the updated data
+            # Save the updated full data
             self._save_json(new_full_data, self.full_data_file)
-            self._save_json(new_extension_data, self.extension_file) # This now saves the hash too
+            # self._save_json(new_extension_data, self.extension_file) - REMOVED
         else:
             logger.info("No changes detected in course data. Files not updated.")
             
