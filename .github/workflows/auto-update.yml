@@ -2,16 +2,18 @@ name: Auto Update Course Database
 
 on:
   schedule:
-    - cron: '0 2 * * 0'
-  workflow_dispatch:
+    - cron: '0 2 * * 0' # Run at 2 AM UTC every Sunday
+  workflow_dispatch: # Allow manual runs
   push:
     branches:
       - master
     paths:
+      # Trigger if the core logic changes
       - 'scrape_courses.py'
       - 'auto_update.py'
       - 'settings.py'
       - 'requirements.txt'
+      - '.github/workflows/auto_update.yml' # Or if the workflow itself changes
 
 jobs:
   update-courses:
@@ -52,7 +54,6 @@ jobs:
           # Output Configuration
           OUTPUT_DIR: ${{ vars.OUTPUT_DIR }}
           FULL_DATA_FILENAME: ${{ vars.FULL_DATA_FILENAME }}
-          EXTENSION_FILENAME: ${{ vars.EXTENSION_FILENAME }}
           CHANGELOG_FILENAME: ${{ vars.CHANGELOG_FILENAME }}
           
           # Logging Configuration
@@ -78,7 +79,7 @@ jobs:
           ls -la *.json *.txt *.md 2>/dev/null || echo "No output files found"
       
       - name: Commit and push changes
-        # FIX: Only run this step if the previous "scrape" step succeeded
+        # Only run this step if the previous "scrape" step succeeded
         if: steps.scrape.outcome == 'success'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -89,9 +90,9 @@ jobs:
           # The '|| true' part ensures that if a file doesn't exist,
           # the step doesn't fail, and it moves to the next file.
           echo "Staging generated files..."
-          git add -f courses_database.json || true
-          git add -f miva_courses_full.json || true
-          git add -f .courses_hash.txt || true
+          # git add -f courses_database.json || true # REMOVED (was extension file)
+          git add -f miva_courses_full.json || true # This is the main data file
+          # git add -f .courses_hash.txt || true # REMOVED (hash is now in the json)
           git add -f CHANGELOG.md || true
           
           # Check if there are changes to commit
@@ -106,13 +107,14 @@ jobs:
           fi
         id: commit
       
-      - name: Upload artifacts (always)
+      - name: Upload artifacts (on failure)
+        # This step now only runs if the job fails, to help with debugging
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: course-data-${{ github.run_number }}
           path: |
-            courses_database.json
+            # courses_database.json # REMOVED
             miva_courses_full.json
             CHANGELOG.md
             scraper.log
