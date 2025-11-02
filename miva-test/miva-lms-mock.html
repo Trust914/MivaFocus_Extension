@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miva LMS - Dashboard (Full Data)</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .container-fluid {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            margin: 0;
+            color: #1e3a8a;
+            font-size: 1.75rem;
+            font-weight: 700;
+        }
+
+        .header .user-info {
+            color: #64748b;
+            font-size: 0.875rem;
+            margin-top: 5px;
+        }
+
+        .enrollment-panel {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+
+        .enrollment-panel h2 {
+            font-size: 1.5rem;
+            color: #1e3a8a;
+            margin-bottom: 15px;
+        }
+
+        .enrollment-panel p {
+            color: #64748b;
+            margin-bottom: 20px;
+        }
+
+        .dept-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .loading-text, .error-text {
+            grid-column: 1 / -1;
+            text-align: center;
+            font-size: 1.1rem;
+            padding: 40px;
+            color: #4b5563;
+        }
+
+        .dept-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 3px solid transparent;
+        }
+
+        .dept-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .dept-card.selected {
+            border-color: #fbbf24;
+            box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.2);
+        }
+
+        .dept-card h3 {
+            font-size: 1.1rem;
+            margin: 0 0 8px 0;
+            font-weight: 600;
+        }
+
+        .dept-card .dept-code {
+            font-size: 0.875rem;
+            opacity: 0.9;
+            font-weight: 500;
+        }
+
+        .dept-card .course-count {
+            font-size: 0.813rem;
+            opacity: 0.8;
+            margin-top: 8px;
+        }
+
+        .all-filter-wrapper {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .nav-search-sort-selector {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .nav-search-sort-selector .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .course-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+
+        .card.dashboard-card {
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            overflow: hidden;
+            background: white;
+        }
+
+        .card.dashboard-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .card-img-top {
+            height: 180px;
+            object-fit: cover;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        .multiline,
+        .coursename {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 10px;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            min-height: 44px; /* 2 lines */
+        }
+
+        .course-info {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.813rem;
+            color: #64748b;
+        }
+
+        .badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .stats-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .stats-panel h3 {
+            font-size: 1.25rem;
+            margin-bottom: 15px;
+            color: #1e293b;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .stat-card {
+            padding: 15px;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
+
+        .stat-card .label {
+            font-size: 0.875rem;
+            color: #64748b;
+            margin-bottom: 5px;
+        }
+
+        .stat-card .value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .instructions {
+            background: #fef3c7;
+            border: 2px solid #fbbf24;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+
+        .instructions h2 {
+            color: #92400e;
+            font-size: 1.25rem;
+            margin-bottom: 10px;
+        }
+
+        .instructions ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .instructions li {
+            margin: 8px 0;
+            color: #78350f;
+        }
+
+        .instructions code {
+            background: #fde68a;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Different course card colors by department */
+        .card.dashboard-card[data-dept="CSC"] .card-img-top { background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%); }
+        .card.dashboard-card[data-dept="CYB"] .card-img-top { background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); }
+        .card.dashboard-card[data-dept="SEN"] .card-img-top { background: linear-gradient(135deg, #10b981 0%, #047857 100%); }
+        .card.dashboard-card[data-dept="DTS"] .card-img-top { background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%); }
+        .card.dashboard-card[data-dept="IFT"] .card-img-top { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+        .card.dashboard-card[data-dept="ACC"] .card-img-top { background: linear-gradient(135deg, #06b6d4 0%, #0e7490 100%); }
+        .card.dashboard-card[data-dept="ENT"] .card-img-top { background: linear-gradient(135deg, #ec4899 0%, #be185d 100%); }
+        .card.dashboard-card[data-dept="BUA"] .card-img-top { background: linear-gradient(135deg, #14b8a6 0%, #0f766e 100%); }
+        .card.dashboard-card[data-dept="ECO"] .card-img-top { background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%); }
+        .card.dashboard-card[data-dept="MAC"] .card-img-top { background: linear-gradient(135deg, #f97316 0%, #c2410c 100%); }
+        .card.dashboard-card[data-dept="NUR"] .card-img-top { background: linear-gradient(135deg, #22c55e 0%, #15803d 100%); }
+        .card.dashboard-card[data-dept="PHH"] .card-img-top { background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%); }
+        .card.dashboard-card[data-dept="PPA"] .card-img-top { background: linear-gradient(135deg, #64748b 0%, #334155 100%); }
+        .card.dashboard-card[data-dept="CRS"] .card-img-top { background: linear-gradient(135deg, #f43f5e 0%, #9f1239 100%); }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <div class="header">
+            <h1>🎓 Miva Open University</h1>
+            <div class="user-info">Welcome, Test Student | Dashboard</div>
+        </div>
+
+        <!-- Testing Instructions -->
+        <div class="instructions">
+            <h2>🧪 Extension Testing Instructions</h2>
+            <ol>
+                <li><strong>Step 1:</strong> Select your department below to "enroll" and see your courses (data is fetched live from GitHub).</li>
+                <li><strong>Step 2:</strong> Click the <strong>MivaFocus extension icon</strong> in your browser toolbar</li>
+                <li><strong>Step 3:</strong> Select the SAME department in the extension popup</li>
+                <li><strong>Step 4:</strong> Click "Enable Filter" and test filtering by level/semester</li>
+                <li><strong>Step 5:</strong> Try different departments to test all filtering scenarios</li>
+            </ol>
+            <p style="margin: 15px 0 0 0;"><strong>💡 Tip:</strong> The extension will filter the courses you see below based on your selection. Select different departments here to simulate different student enrollments!</p>
+        </div>
+
+        <!-- Enrollment Panel -->
+        <div id="enrollmentPanel" class="enrollment-panel">
+            <h2>📚 Select Your Department</h2>
+            <p>Choose your department to see relevant courses (simulates student enrollment)</p>
+            <div class="dept-grid" id="deptGrid">
+                <!-- Departments will be generated here -->
+                <div class="loading-text">Loading all Miva departments...</div>
+            </div>
+        </div>
+
+        <!-- Course View (hidden until enrollment) -->
+        <div id="courseView" class="hidden">
+            <!-- Filter Wrapper -->
+            <div class="all-filter-wrapper">
+                <div class="nav-search-sort-selector">
+                    <button class="btn btn-primary">All</button>
+                    <button class="btn btn-outline-secondary">In Progress</button>
+                    <button class="btn btn-outline-secondary">Completed</button>
+                    <button class="btn btn-warning" id="changeEnrollment">Change Department</button>
+                    <!-- Extension will inject controls here -->
+                </div>
+            </div>
+
+            <!-- Course Cards Container -->
+            <div class="course-container" id="courseContainer">
+                <!-- Courses will be generated here -->
+            </div>
+
+            <!-- Stats Panel -->
+            <div class="stats-panel">
+                <h3>Course Statistics</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="label">Enrolled Department</div>
+                        <div class="value" id="enrolledDept">-</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Total Courses</div>
+                        <div class="value" id="totalCourses">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Visible Courses</div>
+                        <div class="value" id="visibleCourses">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="label">Hidden Courses</div>
+                        <div class="value" id="hiddenCourses">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.4/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        // Store data fetched from the "master" JSON
+        let mivaFullDB = null;
+        // This will hold the *transformed* data in the format { DEPT_CODE: [courseList], ... }
+        let allCourses = {};
+        // This will hold department info in the format { DEPT_CODE: {name, faculty}, ... }
+        let departments = {};
+
+        let currentEnrollment = null;
+
+        // URL for the raw miva_courses_full.json
+        const GITHUB_URL = "https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/miva_courses_full.json";
+
+        /**
+         * Fetches the full course JSON from GitHub, transforms it, and
+         * populates the department selection UI.
+         */
+        async function fetchAndInitialize() {
+            const grid = document.getElementById('deptGrid');
+            try {
+                const response = await fetch(GITHUB_URL);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                mivaFullDB = await response.json();
+
+                // Process the fetched data
+                transformData();
+                
+                // Now that data is ready, generate the department cards
+                generateDepartmentCards();
+
+            } catch (error) {
+                console.error("Failed to fetch or process Miva course data:", error);
+                grid.innerHTML = `<div class="error-text">❌ Failed to load course data. Check console.</div>`;
+            }
+        }
+
+        /**
+         * Transforms the raw JSON data from miva_courses_full.json into
+         * the two objects this page needs: `allCourses` and `departments`.
+         */
+        function transformData() {
+            if (!mivaFullDB || !mivaFullDB.faculties) return;
+            
+            // Clear any old data
+            allCourses = {};
+            departments = {};
+
+            for (const [facultyName, facultyData] of Object.entries(mivaFullDB.faculties)) {
+                if (!facultyData.departments) continue;
+
+                for (const [deptCode, deptData] of Object.entries(facultyData.departments)) {
+                    
+                    // 1. Populate the departments object
+                    departments[deptCode] = { name: deptData.name, faculty: facultyName };
+                    
+                    // 2. Populate the allCourses object
+                    const courseList = [];
+                    if (!deptData.courses) continue;
+
+                    for (const [levelKey, levelData] of Object.entries(deptData.courses)) {
+                        const level = levelKey.split('_')[0]; // "100_Level" -> "100"
+                        
+                        if (levelData.first_semester && Array.isArray(levelData.first_semester)) {
+                            levelData.first_semester.forEach((course, i) => {
+                                courseList.push({
+                                    title: course.title,
+                                    // Fabricate a course code as the JSON doesn't have it
+                                    code: `${deptCode} ${level}${i}1`, 
+                                    level: level,
+                                    semester: 'first'
+                                });
+                            });
+                        }
+                        
+                        if (levelData.second_semester && Array.isArray(levelData.second_semester)) {
+                            levelData.second_semester.forEach((course, i) => {
+                                courseList.push({
+                                    title: course.title,
+                                    code: `${deptCode} ${level}${i}2`, // Fabricate a code
+                                    level: level,
+                                    semester: 'second'
+                                });
+                            });
+                        }
+                    }
+                    allCourses[deptCode] = courseList;
+                }
+            }
+        }
+
+        /**
+         * Generates the department selection cards based on the fetched data.
+         */
+        function generateDepartmentCards() {
+            const grid = document.getElementById('deptGrid');
+            grid.innerHTML = ''; // Clear loading text
+            
+            // Sort department codes alphabetically
+            const sortedDeptCodes = Object.keys(departments).sort();
+            
+            sortedDeptCodes.forEach(code => {
+                const info = departments[code];
+                const courseCount = allCourses[code]?.length || 0;
+                const card = document.createElement('div');
+                card.className = 'dept-card';
+                card.setAttribute('data-dept-code', code);
+                card.innerHTML = `
+                    <h3>${info.name}</h3>
+                    <div class="dept-code">${code}</div>
+                    <div class="course-count">${courseCount} courses available</div>
+                `;
+                card.addEventListener('click', () => enrollInDepartment(code));
+                grid.appendChild(card);
+            });
+        }
+
+        // Enroll in a department
+        function enrollInDepartment(deptCode) {
+            currentEnrollment = deptCode;
+            
+            // Update UI
+            document.querySelectorAll('.dept-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            const selectedCard = document.querySelector(`[data-dept-code="${deptCode}"]`);
+            if (selectedCard) {
+                selectedCard.classList.add('selected');
+            }
+            
+            // Show course view
+            setTimeout(() => {
+                document.getElementById('enrollmentPanel').classList.add('hidden');
+                document.getElementById('courseView').classList.remove('hidden');
+                generateCourseCards(deptCode);
+                document.getElementById('enrolledDept').textContent = deptCode;
+            }, 300);
+        }
+
+        // Generate course cards for enrolled department
+        function generateCourseCards(deptCode) {
+            const container = document.getElementById('courseContainer');
+            container.innerHTML = '';
+            
+            const courses = allCourses[deptCode] || [];
+            
+            courses.forEach((course, index) => {
+                const card = document.createElement('div');
+                card.className = 'card dashboard-card';
+                card.setAttribute('role', 'listitem');
+                card.setAttribute('data-region', 'course-content');
+                card.setAttribute('data-course-id', `${deptCode}-${index}`);
+                card.setAttribute('data-level', course.level);
+                card.setAttribute('data-semester', course.semester);
+                card.setAttribute('data-dept', deptCode);
+                
+                const levelBadgeColors = {
+                    '100': 'primary',
+                    '200': 'success',
+                    '300': 'warning',
+                    '400': 'danger',
+                    '500': 'info'
+                };
+                
+                card.innerHTML = `
+                    <div class="card-img-top" data-dept="${deptCode}"></div>
+                    <div class="card-body">
+                        <a href="#" class="coursename" onclick="return false;">
+                            <div class="multiline" title="${course.title}">${course.title}</div>
+                        </a>
+                        <div class="course-info">
+                            <div class="info-item">
+                                <span class="badge badge-${levelBadgeColors[course.level] || 'secondary'}">${course.level} Level</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="badge badge-secondary">${course.code}</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="badge badge-light">${course.semester === 'first' ? '1st Sem' : '2nd Sem'}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(card);
+            });
+            
+            updateStats();
+        }
+
+        // Change enrollment (go back to department selection)
+        function changeEnrollment() {
+            document.getElementById('courseView').classList.add('hidden');
+            document.getElementById('enrollmentPanel').classList.remove('hidden');
+            currentEnrollment = null;
+            
+            // Clear the generated course cards
+            const container = document.getElementById('courseContainer');
+            container.innerHTML = '';
+        }
+
+        // Update statistics
+        function updateStats() {
+            const allCourses = document.querySelectorAll('#courseContainer .dashboard-card');
+            const visibleCourses = Array.from(allCourses).filter(card => 
+                card.style.display !== 'none'
+            );
+            
+            document.getElementById('totalCourses').textContent = allCourses.length;
+            document.getElementById('visibleCourses').textContent = visibleCourses.length;
+            document.getElementById('hiddenCourses').textContent = allCourses.length - visibleCourses.length;
+        }
+
+        // Monitor DOM changes to update stats
+        const observer = new MutationObserver(updateStats);
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Start fetching data as soon as the DOM is loaded
+            fetchAndInitialize();
+            
+            // Add change enrollment button listener
+            document.getElementById('changeEnrollment').addEventListener('click', changeEnrollment);
+            
+            // Observe course container when it's available
+            const courseContainer = document.getElementById('courseContainer');
+            if (courseContainer) {
+                observer.observe(courseContainer, {
+                    attributes: true,
+                    attributeFilter: ['style'],
+                    subtree: true,
+                    childList: true // Also watch for cards being added/removed
+                });
+            }
+            
+            // Update stats periodically as a fallback
+            setInterval(updateStats, 1000);
+        });
+    </script>
+</body>
+</html>

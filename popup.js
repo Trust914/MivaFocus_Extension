@@ -2,17 +2,20 @@ class MivaFocusPopup {
   constructor() {
     this.userSettings = {};
     this.courseDB = null;
+    this.departmentMap = null; // lookup map
     this.cacheKey = "courseDBCache";
     this.cacheExpiry = 7 * 24 * 60 * 60 * 1000; // 7 days
     this.githubRawUrl =
-      "https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/courses_database.json";
-    this.lmsDomain = "lms.miva.university";
+      "https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/miva_courses_full.json";
+    // this.lmsDomain = "lms.miva.university";
+    this.lmsDomain = "" // Accept all domains for local testing
     this.init();
   }
 
   async init() {
     await this.loadSettings();
     await this.loadAndCacheDB();
+    this.buildDepartmentMap(); // Build lookup map once
     this.renderUI();
     this.attachListeners();
   }
@@ -30,10 +33,7 @@ class MivaFocusPopup {
     const cached = await chrome.storage.local.get(this.cacheKey);
     const now = Date.now();
 
-    if (
-      cached[this.cacheKey] &&
-      now - cached[this.cacheKey].timestamp < this.cacheExpiry
-    ) {
+    if ( cached[this.cacheKey] && now - cached[this.cacheKey].timestamp < this.cacheExpiry) {
       this.courseDB = cached[this.cacheKey].data;
       return;
     }
@@ -43,6 +43,8 @@ class MivaFocusPopup {
       const response = await fetch(this.githubRawUrl);
       if (!response.ok) throw new Error("Failed to fetch database");
       this.courseDB = await response.json();
+      
+      // Cache with compression consideration for large data
       await chrome.storage.local.set({
         [this.cacheKey]: { data: this.courseDB, timestamp: now },
       });
@@ -53,21 +55,77 @@ class MivaFocusPopup {
     }
   }
 
+
+  buildDepartmentMap() {
+    if (!this.courseDB?.faculties) return;
+    
+    this.departmentMap = new Map();
+    
+    for (const [facultyName, facultyData] of Object.entries(this.courseDB.faculties)) {
+      if (!facultyData.departments) continue;
+      
+      for (const [deptCode, deptData] of Object.entries(facultyData.departments)) {
+        this.departmentMap.set(deptCode, {
+          ...deptData,
+          faculty: facultyName
+        });
+      }
+    }
+  }
+
+ 
   populateDepartments() {
     const select = document.getElementById("department");
-    if (!this.courseDB?.departments) return;
+    if (!this.departmentMap || this.departmentMap.size === 0) return;
 
-    select.innerHTML = '<option value="">Select Department</option>';
-    const entries = Object.entries(this.courseDB.departments).sort((a, b) =>
-      a[1].name.localeCompare(b[1].name)
-    );
-
-    for (const [code, data] of entries) {
+    // Use DocumentFragment for batch DOM insertion - much faster
+    const fragment = document.createDocumentFragment();
+    const defaultOpt = document.createElement("option");
+    defaultOpt.value = "";
+    defaultOpt.textContent = "Select Department";
+    fragment.appendChild(defaultOpt);
+    
+    // Convert Map to array and sort once by faculty and name
+    const sortedDepts = Array.from(this.departmentMap.entries())
+      .sort((a, b) => {
+        // Sort by faculty first, then by department name
+        const facultyCompare = a[1].faculty.localeCompare(b[1].faculty);
+        return facultyCompare !== 0 ? facultyCompare : a[1].name.localeCompare(b[1].name);
+      });
+    
+    // Group by faculty and create optgroups
+    let currentFaculty = null;
+    let currentOptgroup = null;
+    
+    for (const [deptCode, deptData] of sortedDepts) {
+      // Create new optgroup when faculty changes
+      if (deptData.faculty !== currentFaculty) {
+        if (currentOptgroup) {
+          fragment.appendChild(currentOptgroup);
+        }
+        currentOptgroup = document.createElement("optgroup");
+        currentOptgroup.label = deptData.faculty;
+        currentFaculty = deptData.faculty;
+      }
+      
       const opt = document.createElement("option");
-      opt.value = code;
-      opt.textContent = `${data.name} (${code})`;
-      select.appendChild(opt);
+      opt.value = deptCode;
+      opt.textContent = `${deptData.name} (${deptCode})`;
+      currentOptgroup.appendChild(opt);
     }
+    
+    // Add the last optgroup
+    if (currentOptgroup) {
+      fragment.appendChild(currentOptgroup);
+    }
+    
+    // Single DOM update - batch insert
+    select.innerHTML = "";
+    select.appendChild(fragment);
+  }
+
+  getDepartmentInfo(deptCode) {
+    return this.departmentMap?.get(deptCode) || null;
   }
 
   renderUI() {
@@ -91,8 +149,8 @@ class MivaFocusPopup {
   displayCurrentSettings() {
     const box = document.getElementById("currentSettings");
     const dept = this.userSettings.department;
-    const name =
-      this.courseDB?.departments?.[dept]?.name || "Unknown Department";
+    const deptInfo = this.getDepartmentInfo(dept);
+    const name = deptInfo?.name || "Unknown Department";
 
     box.innerHTML = `
       <p style="opacity:0.8;">Current Department</p>
@@ -151,12 +209,38 @@ class MivaFocusPopup {
     this.renderUI();
   }
 
+  // async notifyLMSTabs(action, data) {
+  //   const tabs = await chrome.tabs.query({});
+    
+  //   // Filter and send in parallel - don't await each message
+  //   const lmsTabs = tabs.filter((t) => t.url?.includes(this.lmsDomain));
+    
+  //   // Use Promise.allSettled to handle failures gracefully
+  //   await Promise.allSettled(
+  //     lmsTabs.map(tab => 
+  //       chrome.tabs.sendMessage(tab.id, { action, settings: data })
+  //         .catch(err => console.warn(`Failed to notify tab ${tab.id}:`, err))
+  //     )
+  //   );
+  // }
+
   async notifyLMSTabs(action, data) {
     const tabs = await chrome.tabs.query({});
-    const lmsTabs = tabs.filter((t) => t.url?.includes(this.lmsDomain));
-    for (const tab of lmsTabs)
-      chrome.tabs.sendMessage(tab.id, { action, settings: data });
-  }
+    
+    // TEST MODE - notify ALL tabs (or filter by URL if needed)
+    const relevantTabs = tabs.filter((t) => 
+      t.url?.includes('lms.miva.university') || 
+      t.url?.includes('localhost') ||
+      t.url?.startsWith('file:///')
+    );
+    
+    await Promise.allSettled(
+      relevantTabs.map(tab => 
+        chrome.tabs.sendMessage(tab.id, { action, settings: data })
+          .catch(err => console.warn(`Failed to notify tab ${tab.id}:`, err))
+      )
+    );
+}
 
   showLoading() {
     document.getElementById("loading").classList.remove("hidden");

@@ -37,7 +37,11 @@
   
     "content_scripts": [
     {
-      "matches": ["*://lms.miva.university/*"],
+      "matches": [
+        "*://lms.miva.university/*",
+         "*://localhost:*/*",
+         "*://127.0.0.1:*/*"
+        ],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_end"
@@ -46,7 +50,7 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["courses_database.json"],
+      "resources": ["miva_courses_full.json"],
       "matches": ["https://lms.miva.university/*"]
     }
   ]

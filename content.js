@@ -2,13 +2,31 @@ class MivaFocusFilter {
   constructor() {
     this.userSettings = null;
     this.departmentCourses = null;
+    this.fullDatabase = null;
     this.lmsCourses = [];
+    
     this.normalizedDbCourses = new Map();
+    this.dbCodesSet = new Set();
+    this.dbCoursesByCode = new Map();
+    this.dbTitlesByFilter = new Map();
+    
     this.stats = { total: 0, visible: 0, hidden: 0 };
     this.isFiltering = false;
     this.initialized = false;
     this.debounceTimer = null;
     this.observer = null;
+    
+    this.patterns = {
+      courseCode: /(?:MIVA-?)?([A-Z]{3})\s*[/-]?\s*(\d{3})/gi,
+      numericSequence: /\b\d+\b|\bi{1,3}v?\b|\biv\b|\bv\b|\bvi{1,3}\b|\bix\b|\bx\b/gi,
+      romanNumeral: /^i{1,3}v?$|^iv$|^v$|^vi{1,3}$|^ix$|^x$/i,
+      normalize: /[^\w\s]/g,
+    };
+    
+    this.romanMap = {
+      'i': '1', 'ii': '2', 'iii': '3', 'iv': '4', 'v': '5',
+      'vi': '6', 'vii': '7', 'viii': '8', 'ix': '9', 'x': '10'
+    };
   }
 
   async init() {
@@ -16,7 +34,6 @@ class MivaFocusFilter {
     
     console.log('[MivaFocus] Initializing...');
     
-    // Message listener for popup communication
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       (async () => {
         try {
@@ -46,7 +63,6 @@ class MivaFocusFilter {
     try {
       await this.loadUserSettings();
       
-      // Check if user has completed onboarding (department selected)
       if (!this.userSettings.department) {
         console.log('[MivaFocus] User needs to complete onboarding');
         this.showOnboardingPrompt();
@@ -55,17 +71,14 @@ class MivaFocusFilter {
       
       await this.loadDepartmentCourses();
       
-      // Wait for DOM to be ready
       if (document.readyState === 'loading') {
         await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
       }
       
-      // Always inject UI to show enable/disable button
       this.injectUI();
       this.extractLMSCourses();
       this.observeDOMChanges();
       
-      // Apply filter if enabled
       if (this.userSettings.filterEnabled) {
         await this.applyFilter();
       }
@@ -101,19 +114,34 @@ class MivaFocusFilter {
       
       if (result.departmentCourses && result.departmentCourses.department === this.userSettings.department) {
         this.departmentCourses = result.departmentCourses;
-        this.cacheNormalizedCourses();
+        await this.loadFullDatabase();
+        this.buildOptimizedLookups();
         console.log('[MivaFocus] Department courses loaded from storage');
       } else if (this.userSettings.department) {
         console.log('[MivaFocus] Fetching full course database...');
         const fullDB = await this.fetchFullDatabase();
-        if (fullDB && fullDB.departments && fullDB.departments[this.userSettings.department]) {
-          this.departmentCourses = {
-            department: this.userSettings.department,
-            courses: fullDB.departments[this.userSettings.department].courses
-          };
-          await chrome.storage.local.set({ departmentCourses: this.departmentCourses });
-          this.cacheNormalizedCourses();
-          console.log('[MivaFocus] Department courses extracted and stored');
+        
+        if (fullDB?.faculties) {
+          this.fullDatabase = fullDB;
+          
+          let found = false;
+          for (const facultyData of Object.values(fullDB.faculties)) {
+            if (facultyData.departments?.[this.userSettings.department]) {
+              this.departmentCourses = {
+                department: this.userSettings.department,
+                courses: facultyData.departments[this.userSettings.department].courses
+              };
+              await chrome.storage.local.set({ departmentCourses: this.departmentCourses });
+              this.buildOptimizedLookups();
+              console.log('[MivaFocus] Department courses extracted and stored');
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            console.warn('[MivaFocus] Department not found:', this.userSettings.department);
+            this.departmentCourses = null;
+          }
         } else {
           console.warn('[MivaFocus] No courses found for department:', this.userSettings.department);
           this.departmentCourses = null;
@@ -128,8 +156,28 @@ class MivaFocusFilter {
     }
   }
 
+  async loadFullDatabase() {
+    if (this.fullDatabase) return;
+    
+    try {
+      const result = await chrome.storage.local.get('fullDatabase');
+      if (result.fullDatabase) {
+        this.fullDatabase = result.fullDatabase;
+        console.log('[MivaFocus] Full database loaded from storage');
+      } else {
+        console.log('[MivaFocus] Fetching full database for cross-department matching...');
+        this.fullDatabase = await this.fetchFullDatabase();
+        if (this.fullDatabase) {
+          await chrome.storage.local.set({ fullDatabase: this.fullDatabase });
+        }
+      }
+    } catch (error) {
+      console.error('[MivaFocus] Failed to load full database:', error);
+    }
+  }
+
   async fetchFullDatabase() {
-    const githubRawUrl = 'https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/courses_database.json';
+    const githubRawUrl = 'https://raw.githubusercontent.com/trust914/MivaFocus_Scraper/master/miva_courses_full.json';
     try {
       const response = await fetch(githubRawUrl);
       if (!response.ok) {
@@ -142,33 +190,128 @@ class MivaFocusFilter {
     }
   }
 
-  cacheNormalizedCourses() {
+  buildOptimizedLookups() {
     this.normalizedDbCourses.clear();
+    this.dbCodesSet.clear();
+    this.dbCoursesByCode.clear();
+    this.dbTitlesByFilter.clear();
     
-    if (!this.departmentCourses || !this.departmentCourses.courses) return;
+    if (!this.fullDatabase?.faculties) return;
     
-    Object.values(this.departmentCourses.courses).forEach(levelData => {
-      if (levelData && typeof levelData === 'object') {
-        Object.values(levelData).forEach(semesterCourses => {
-          if (Array.isArray(semesterCourses)) {
-            semesterCourses.forEach(course => {
-              if (course && course.title) {
-                const normalized = this.normalizeTitle(course.title).toLowerCase();
-                const courseCode = course.code ? course.code.replace(/\s+/g, '').toLowerCase() : null;
+    const startTime = performance.now();
+    let courseCount = 0;
+    
+    for (const facultyData of Object.values(this.fullDatabase.faculties)) {
+      if (!facultyData.departments) continue;
+      
+      for (const [deptCode, deptData] of Object.entries(facultyData.departments)) {
+        if (!deptData.courses) continue;
+        
+        for (const [levelKey, levelData] of Object.entries(deptData.courses)) {
+          if (!levelData || typeof levelData !== 'object') continue;
+          
+          for (const [semesterKey, semesterCourses] of Object.entries(levelData)) {
+            if (!Array.isArray(semesterCourses)) continue;
+            
+            for (const course of semesterCourses) {
+              if (!course?.title) continue;
+              
+              courseCount++;
+              const normalized = this.normalizeTitle(course.title);
+              const courseCodes = this.extractAllCourseCodes(course.title);
+              
+              const courseData = {
+                original: course.title,
+                normalized,
+                codes: courseCodes,
+                level: levelKey,
+                semester: semesterKey,
+                department: deptCode
+              };
+              
+              this.normalizedDbCourses.set(course.title, courseData);
+              
+              for (const code of courseCodes) {
+                this.dbCodesSet.add(code);
                 
-                this.normalizedDbCourses.set(course.title, {
-                  original: course.title,
-                  normalized: normalized,
-                  code: courseCode
-                });
+                if (!this.dbCoursesByCode.has(code)) {
+                  this.dbCoursesByCode.set(code, []);
+                }
+                this.dbCoursesByCode.get(code).push(courseData);
               }
-            });
+            }
           }
-        });
+        }
       }
-    });
+    }
     
-    console.log(`[MivaFocus] Cached ${this.normalizedDbCourses.size} normalized course titles`);
+    const elapsed = performance.now() - startTime;
+    console.log(`[MivaFocus] Built optimized lookups for ${courseCount} courses across all departments in ${elapsed.toFixed(2)}ms`);
+    console.log(`[MivaFocus] Total unique course codes: ${this.dbCodesSet.size}`);
+  }
+
+  extractAllCourseCodes(title) {
+    const codes = new Set();
+    this.patterns.courseCode.lastIndex = 0;
+    
+    let match;
+    while ((match = this.patterns.courseCode.exec(title)) !== null) {
+      const dept = match[1].toUpperCase();
+      const num = match[2];
+      const code = `${dept}${num}`.toLowerCase();
+      codes.add(code);
+    }
+    
+    return Array.from(codes);
+  }
+
+  getFilteredCourses() {
+    const { filterLevel, filterSemester } = this.userSettings;
+    const cacheKey = `${filterLevel || 'all'}_${filterSemester || 'all'}`;
+    
+    if (this.dbTitlesByFilter.has(cacheKey)) {
+      return this.dbTitlesByFilter.get(cacheKey);
+    }
+    
+    const coursesToMatch = [];
+    
+    if (!this.departmentCourses?.courses) {
+      return coursesToMatch;
+    }
+    
+    if (filterLevel && filterSemester) {
+      const levelKey = `${filterLevel}_Level`;
+      const courses = this.departmentCourses.courses[levelKey]?.[filterSemester];
+      if (courses) coursesToMatch.push(...courses);
+    } else if (filterLevel) {
+      const levelKey = `${filterLevel}_Level`;
+      const levelData = this.departmentCourses.courses[levelKey];
+      if (levelData) {
+        for (const semesterCourses of Object.values(levelData)) {
+          if (Array.isArray(semesterCourses)) {
+            coursesToMatch.push(...semesterCourses);
+          }
+        }
+      }
+    } else if (filterSemester) {
+      for (const levelData of Object.values(this.departmentCourses.courses)) {
+        const courses = levelData?.[filterSemester];
+        if (courses) coursesToMatch.push(...courses);
+      }
+    } else {
+      for (const levelData of Object.values(this.departmentCourses.courses)) {
+        if (levelData && typeof levelData === 'object') {
+          for (const semesterCourses of Object.values(levelData)) {
+            if (Array.isArray(semesterCourses)) {
+              coursesToMatch.push(...semesterCourses);
+            }
+          }
+        }
+      }
+    }
+    
+    this.dbTitlesByFilter.set(cacheKey, coursesToMatch);
+    return coursesToMatch;
   }
 
   showOnboardingPrompt() {
@@ -219,28 +362,27 @@ class MivaFocusFilter {
     const courseElements = this.findCourseElements();
     this.lmsCourses = [];
     
-    courseElements.forEach(el => {
+    for (const el of courseElements) {
       const title = this.extractCourseTitle(el);
-      if (title && title.length > 5) {
-        const normalizedFull = this.normalizeTitle(title).toLowerCase();
-        const codeMatch = title.match(/\b([A-Z]{3})\s*(\d{3})\b/i);
-        const courseCode = codeMatch ? `${codeMatch[1]}${codeMatch[2]}`.toLowerCase() : null;
-        
-        let descriptiveTitle = title;
-        if (codeMatch) {
-          descriptiveTitle = title.replace(codeMatch[0], '').replace(/^\s*[-–—:\s]*/, '').trim();
-        }
-        const normalizedDesc = this.normalizeTitle(descriptiveTitle).toLowerCase();
-        
-        this.lmsCourses.push({
-          element: el,
-          title,
-          normalizedFull,
-          normalizedDesc,
-          code: courseCode
-        });
-      }
-    });
+      if (!title || title.length <= 5) continue;
+      
+      const normalizedFull = this.normalizeTitle(title);
+      const courseCodes = this.extractAllCourseCodes(title);
+      
+      let descriptiveTitle = title;
+      this.patterns.courseCode.lastIndex = 0;
+      descriptiveTitle = title.replace(this.patterns.courseCode, '').replace(/^\s*[-—–:\s]*/, '').trim();
+      
+      const normalizedDesc = this.normalizeTitle(descriptiveTitle);
+      
+      this.lmsCourses.push({
+        element: el,
+        title,
+        normalizedFull,
+        normalizedDesc,
+        codes: courseCodes
+      });
+    }
     
     console.log(`[MivaFocus] Extracted ${this.lmsCourses.length} courses from LMS`);
   }
@@ -305,7 +447,7 @@ class MivaFocusFilter {
   normalizeTitle(title) {
     return title
       .toLowerCase()
-      .replace(/[^\w\s]/g, '')
+      .replace(this.patterns.normalize, '')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -315,14 +457,12 @@ class MivaFocusFilter {
 
     const wrapper = document.querySelector('.all-filter-wrapper');
     if (!wrapper) {
-      console.warn('[MivaFocus] Could not find .all-filter-wrapper, falling back to fixed bar');
       this.injectFallbackUI();
       return;
     }
 
     const navSearchSort = wrapper.querySelector('.nav-search-sort-selector');
     if (!navSearchSort) {
-      console.warn('[MivaFocus] Could not find .nav-search-sort-selector, falling back to fixed bar');
       this.injectFallbackUI();
       return;
     }
@@ -333,12 +473,11 @@ class MivaFocusFilter {
     controlContainer.style.marginLeft = '.1rem';
     controlContainer.innerHTML = `
       <div class="d-flex flex-wrap align-items-center">
-        
         <div id="mf-filter-dropdown-container" class="dropdown ml-2" style="display: ${this.userSettings.filterEnabled ? 'block' : 'none'};">
-          <button id="mivafocus-filter-dropdown" type="button" class="btn dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-label="MivaFocus filter drop-down menu">
+          <button id="mivafocus-filter-dropdown" type="button" class="btn dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
             <span>Filter Courses</span>
           </button>
-          <ul class="dropdown-menu" aria-labelledby="mivafocus-filter-dropdown">
+          <ul class="dropdown-menu">
             <li class="dropdown-item d-flex flex-column p-3" style="width: 300px;">
               <label for="mf-filter-level" class="font-weight-bold mb-1">Filter by Level</label>
               <select id="mf-filter-level" class="form-control mb-2">
@@ -363,7 +502,6 @@ class MivaFocusFilter {
 
     navSearchSort.appendChild(controlContainer);
 
-    // Prevent dropdown from closing on inner clicks
     const dropdownMenu = controlContainer.querySelector('.dropdown-menu');
     if (dropdownMenu) {
       dropdownMenu.addEventListener('click', (e) => {
@@ -371,16 +509,11 @@ class MivaFocusFilter {
       });
     }
 
-    // Set initial values
     const levelSelect = document.getElementById('mf-filter-level');
     const semesterSelect = document.getElementById('mf-filter-semester');
     
-    if (levelSelect) {
-      levelSelect.value = this.userSettings.filterLevel || '';
-    }
-    if (semesterSelect) {
-      semesterSelect.value = this.userSettings.filterSemester || '';
-    }
+    if (levelSelect) levelSelect.value = this.userSettings.filterLevel || '';
+    if (semesterSelect) semesterSelect.value = this.userSettings.filterSemester || '';
     
     this.attachEventListeners();
   }
@@ -390,6 +523,7 @@ class MivaFocusFilter {
     controlBar.id = 'mivafocus-control-bar';
     controlBar.style.cssText = `
       position: fixed; top: 0; left: 0; width: 100%; z-index: 1000; 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       border-bottom: 2px solid rgba(255,255,255,0.2); padding: 0.75rem 1.5rem;
       display: flex; align-items: center; justify-content: space-between; 
       font-family: system-ui, -apple-system, sans-serif; 
@@ -404,19 +538,7 @@ class MivaFocusFilter {
           </svg>
           <span>MivaFocus</span>
         </div>
-        <!-- 
-          <button id="mf-toggle-filter" style="
-            background: ${this.userSettings.filterEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)'}; 
-            color: ${this.userSettings.filterEnabled ? 'white' : '#1e293b'}; 
-            border: none; padding: 0.625rem 1.25rem; border-radius: 8px; 
-            cursor: pointer; font-size: 0.875rem; font-weight: 600; 
-            transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-          " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-            ${this.userSettings.filterEnabled ? '✕ Disable Filter' : '✓ Enable Filter'}
-          </button>
-        -->
         
-        <!-- Filter Controls -->
         <div id="mf-filter-dropdown-container" style="display: ${this.userSettings.filterEnabled ? 'flex' : 'none'}; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.95); padding: 0.5rem 1rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2">
             <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
@@ -441,32 +563,23 @@ class MivaFocusFilter {
     document.body.insertBefore(controlBar, document.body.firstChild);
     document.body.style.paddingTop = '50px';
     
-    // Set initial dropdown values
     const levelSelect = document.getElementById('mf-filter-level');
     const semesterSelect = document.getElementById('mf-filter-semester');
     
-    if (levelSelect) {
-      levelSelect.value = this.userSettings.filterLevel || '';
-    }
-    if (semesterSelect) {
-      semesterSelect.value = this.userSettings.filterSemester || '';
-    }
+    if (levelSelect) levelSelect.value = this.userSettings.filterLevel || '';
+    if (semesterSelect) semesterSelect.value = this.userSettings.filterSemester || '';
     
     this.attachEventListeners();
   }
 
   attachEventListeners() {
-    const toggleBtn = document.getElementById('mf-toggle-filter');
     const levelSelect = document.getElementById('mf-filter-level');
     const semesterSelect = document.getElementById('mf-filter-semester');
-    
-    if (toggleBtn) {
-      toggleBtn.addEventListener('click', () => this.toggleFilter());
-    }
     
     if (levelSelect) {
       levelSelect.addEventListener('change', (e) => {
         this.userSettings.filterLevel = e.target.value;
+        this.dbTitlesByFilter.clear();
         this.saveUserSettings();
         if (this.userSettings.filterEnabled) {
           this.applyFilter();
@@ -477,43 +590,13 @@ class MivaFocusFilter {
     if (semesterSelect) {
       semesterSelect.addEventListener('change', (e) => {
         this.userSettings.filterSemester = e.target.value;
+        this.dbTitlesByFilter.clear();
         this.saveUserSettings();
         if (this.userSettings.filterEnabled) {
           this.applyFilter();
         }
       });
     }
-  }
-
-  async toggleFilter() {
-    this.userSettings.filterEnabled = !this.userSettings.filterEnabled;
-    await this.saveUserSettings();
-    
-    const toggleBtn = document.getElementById('mf-toggle-filter');
-    const dropdownContainer = document.getElementById('mf-filter-dropdown-container');
-    
-    if (toggleBtn) {
-      const isEnabled = this.userSettings.filterEnabled;
-      
-      // Update button text and style
-      if (toggleBtn.classList) {
-        // Bootstrap version
-        toggleBtn.textContent = isEnabled ? 'Disable Filter' : 'Enable Filter';
-        toggleBtn.className = `btn ${isEnabled ? 'btn-danger' : 'btn-primary'}`;
-      } else {
-        // Fallback UI style update
-        toggleBtn.textContent = isEnabled ? '✕ Disable Filter' : '✓ Enable Filter';
-        toggleBtn.style.background = isEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)';
-        toggleBtn.style.color = isEnabled ? 'white' : '#1e293b';
-      }
-    }
-    
-    // Show/hide dropdown immediately
-    if (dropdownContainer) {
-      dropdownContainer.style.display = this.userSettings.filterEnabled ? (dropdownContainer.classList ? 'block' : 'flex') : 'none';
-    }
-
-    await this.applyFilter();
   }
 
   async handleSettingsUpdate(settings) {
@@ -523,42 +606,20 @@ class MivaFocusFilter {
     this.userSettings = { ...this.userSettings, ...settings };
     await this.saveUserSettings();
     
-    // Reload courses if department changed
     if (oldDept !== this.userSettings.department) {
       await this.loadDepartmentCourses();
       
-      // Reinitialize UI if department was just set
       if (!oldDept && this.userSettings.department) {
         const overlay = document.getElementById('mivafocus-onboarding-overlay');
         if (overlay) overlay.remove();
         
-        // Remove old UI if exists
         this.removeUI();
-        
-        // Inject new UI
         this.injectUI();
         this.extractLMSCourses();
       }
     }
     
-    // Update UI elements if they exist
-    const toggleBtn = document.getElementById('mf-toggle-filter');
     const dropdownContainer = document.getElementById('mf-filter-dropdown-container');
-    
-    if (toggleBtn) {
-      const isEnabled = this.userSettings.filterEnabled;
-      
-      if (toggleBtn.classList) {
-        toggleBtn.textContent = isEnabled ? 'Disable Filter' : 'Enable Filter';
-        toggleBtn.className = `btn ${isEnabled ? 'btn-danger' : 'btn-primary'}`;
-      } else {
-        toggleBtn.textContent = isEnabled ? '✕ Disable Filter' : '✓ Enable Filter';
-        toggleBtn.style.background = isEnabled ? '#ef4444' : 'rgba(255,255,255,0.95)';
-        toggleBtn.style.color = isEnabled ? 'white' : '#1e293b';
-      }
-    }
-    
-    // Show/hide dropdown based on filter state
     if (dropdownContainer) {
       dropdownContainer.style.display = this.userSettings.filterEnabled ? (dropdownContainer.classList ? 'block' : 'flex') : 'none';
     }
@@ -569,21 +630,19 @@ class MivaFocusFilter {
     if (levelSelect) levelSelect.value = this.userSettings.filterLevel || '';
     if (semesterSelect) semesterSelect.value = this.userSettings.filterSemester || '';
     
-    // Apply filter with new settings
+    this.dbTitlesByFilter.clear();
+    
     if (this.userSettings.filterEnabled) {
       await this.applyFilter();
     } else if (oldEnabled !== this.userSettings.filterEnabled) {
-      // If filter was just disabled, show all courses
       await this.applyFilter();
     }
   }
 
   async handleReset() {
-    // Remove UI completely
     this.removeUI();
     document.body.style.paddingTop = '';
     
-    // Reset state
     this.userSettings = {
       department: null,
       filterEnabled: false,
@@ -596,23 +655,24 @@ class MivaFocusFilter {
     await this.saveUserSettings();
     
     this.departmentCourses = null;
+    this.fullDatabase = null;
+    this.normalizedDbCourses.clear();
+    this.dbCodesSet.clear();
+    this.dbCoursesByCode.clear();
+    this.dbTitlesByFilter.clear();
     this.initialized = false;
     
-    // Show all courses
     this.lmsCourses.forEach(course => {
       course.element.style.removeProperty('display');
       course.element.removeAttribute('data-mivafocus-filtered');
     });
     
-    // Show onboarding prompt
     this.showOnboardingPrompt();
   }
 
   removeUI() {
     const controlBar = document.getElementById('mivafocus-control-bar');
-    if (controlBar) {
-      controlBar.remove();
-    }
+    if (controlBar) controlBar.remove();
   }
 
   async applyFilter() {
@@ -623,7 +683,6 @@ class MivaFocusFilter {
     this.isFiltering = true;
 
     try {
-      // Re-extract to catch any new courses
       this.extractLMSCourses();
 
       if (this.lmsCourses.length === 0) {
@@ -636,30 +695,39 @@ class MivaFocusFilter {
       this.stats.visible = 0;
       this.stats.hidden = 0;
 
-      // Batch DOM updates
+      if (!this.userSettings.filterEnabled) {
+        requestAnimationFrame(() => {
+          for (const lmsCourse of this.lmsCourses) {
+            lmsCourse.element.style.removeProperty('display');
+            lmsCourse.element.removeAttribute('data-mivafocus-filtered');
+            this.stats.visible++;
+          }
+          this.updateStatsDisplay();
+          console.log('[MivaFocus] Filter disabled - showing all courses:', this.stats);
+        });
+        this.isFiltering = false;
+        return;
+      }
+
+      const coursesToMatch = this.getFilteredCourses();
+
       const updates = this.lmsCourses.map(lmsCourse => ({
         element: lmsCourse.element,
-        shouldShow: this.shouldShowCourse(lmsCourse)
+        shouldShow: this.shouldShowCourse(lmsCourse, coursesToMatch)
       }));
 
       requestAnimationFrame(() => {
-        updates.forEach(({ element, shouldShow }) => {
-          if (this.userSettings.filterEnabled) {
-            if (shouldShow) {
-              element.style.removeProperty('display');
-              element.setAttribute('data-mivafocus-filtered', 'false');
-              this.stats.visible++;
-            } else {
-              element.style.display = 'none';
-              element.setAttribute('data-mivafocus-filtered', 'true');
-              this.stats.hidden++;
-            }
-          } else {
+        for (const { element, shouldShow } of updates) {
+          if (shouldShow) {
             element.style.removeProperty('display');
-            element.removeAttribute('data-mivafocus-filtered');
+            element.setAttribute('data-mivafocus-filtered', 'false');
             this.stats.visible++;
+          } else {
+            element.style.display = 'none';
+            element.setAttribute('data-mivafocus-filtered', 'true');
+            this.stats.hidden++;
           }
-        });
+        }
 
         this.updateStatsDisplay();
         console.log('[MivaFocus] Filter applied:', this.stats);
@@ -672,50 +740,22 @@ class MivaFocusFilter {
     }
   }
 
-  shouldShowCourse(lmsCourse) {
-    if (!this.departmentCourses || !this.departmentCourses.courses) {
+  shouldShowCourse(lmsCourse, coursesToMatch) {
+    if (!this.userSettings.filterEnabled) {
       return true;
     }
-
-    const { filterLevel, filterSemester } = this.userSettings;
-    let coursesToMatch = [];
     
-    if (filterLevel && filterSemester) {
-      // Specific level and semester
-      const levelKey = `${filterLevel}_Level`;
-      const levelData = this.departmentCourses.courses[levelKey];
-      if (levelData && levelData[filterSemester]) {
-        coursesToMatch = levelData[filterSemester];
-      }
-    } else if (filterLevel) {
-      // All semesters for specific level
-      const levelKey = `${filterLevel}_Level`;
-      const levelData = this.departmentCourses.courses[levelKey];
-      if (levelData) {
-        Object.values(levelData).forEach(semesterCourses => {
-          if (Array.isArray(semesterCourses)) {
-            coursesToMatch = coursesToMatch.concat(semesterCourses);
-          }
-        });
-      }
-    } else if (filterSemester) {
-      // Specific semester across all levels
-      Object.values(this.departmentCourses.courses).forEach(levelData => {
-        if (levelData && levelData[filterSemester]) {
-          coursesToMatch = coursesToMatch.concat(levelData[filterSemester]);
-        }
-      });
-    } else {
-      // Show all courses in department
-      Object.values(this.departmentCourses.courses).forEach(levelData => {
-        if (levelData && typeof levelData === 'object') {
-          Object.values(levelData).forEach(semesterCourses => {
-            if (Array.isArray(semesterCourses)) {
-              coursesToMatch = coursesToMatch.concat(semesterCourses);
-            }
-          });
-        }
-      });
+    if (!this.departmentCourses?.courses) {
+      return true;
+    }
+    
+    const { filterLevel, filterSemester } = this.userSettings;
+    if (!filterLevel && !filterSemester) {
+      return true;
+    }
+    
+    if (!coursesToMatch || coursesToMatch.length === 0) {
+      return false;
     }
 
     return this.matchCourse(lmsCourse, coursesToMatch);
@@ -724,89 +764,118 @@ class MivaFocusFilter {
   matchCourse(lmsCourse, coursesToMatch) {
     const lmsFullLower = lmsCourse.normalizedFull;
     const lmsDescLower = lmsCourse.normalizedDesc;
-    const lmsCode = lmsCourse.code;
+    const lmsCodes = lmsCourse.codes || [];
     
-    // Build optimized lookup structures
-    const dbCodes = new Set();
-    const dbTitleMap = new Map();
+    // Priority 1: EXACT course code match - handles borrowed courses from ANY department
+    for (const lmsCode of lmsCodes) {
+      if (this.dbCodesSet.has(lmsCode)) {
+        const matchingCourses = this.dbCoursesByCode.get(lmsCode) || [];
+        
+        for (const dbCourse of matchingCourses) {
+          const isInFilteredList = coursesToMatch.some(c => c.title === dbCourse.original);
+          if (isInFilteredList) {
+            console.log(`[MivaFocus] ✓ Code match: "${lmsCourse.title}" [${lmsCode}] -> "${dbCourse.original}" (${dbCourse.department} ${dbCourse.level})`);
+            return true;
+          }
+        }
+      }
+    }
+    
+    // Build optimized lookup structures for title matching
+    const dbTitleSet = new Set();
+    const dbTitleList = [];
     
     for (const dbCourse of coursesToMatch) {
-      if (!dbCourse || !dbCourse.title) continue;
+      if (!dbCourse?.title) continue;
+      
       const dbData = this.normalizedDbCourses.get(dbCourse.title);
       if (!dbData) continue;
       
-      if (dbData.code) {
-        dbCodes.add(dbData.code);
-      }
-      dbTitleMap.set(dbData.normalized, dbData);
-    }
-    
-    // Priority 1: EXACT course code match
-    if (lmsCode && dbCodes.has(lmsCode)) {
-      return true;
+      dbTitleSet.add(dbData.normalized);
+      dbTitleList.push(dbData);
     }
     
     // Priority 2: EXACT descriptive title match
-    if (dbTitleMap.has(lmsDescLower)) {
+    if (dbTitleSet.has(lmsDescLower)) {
+      console.log(`[MivaFocus] ✓ Descriptive title match: "${lmsCourse.title}"`);
       return true;
     }
     
     // Priority 3: EXACT full title match
-    if (dbTitleMap.has(lmsFullLower)) {
+    if (dbTitleSet.has(lmsFullLower)) {
+      console.log(`[MivaFocus] ✓ Full title match: "${lmsCourse.title}"`);
       return true;
     }
     
-    // Priority 4: Smart fuzzy matching with sequence detection
-    for (const [dbNormalized, dbData] of dbTitleMap.entries()) {
-      // Extract all words (>2 chars for more inclusivity)
-      const lmsWords = lmsDescLower.split(/\s+/).filter(w => w.length > 2);
+    // Priority 4: Fuzzy matching with strict criteria
+    const lmsWords = lmsDescLower.split(/\s+/).filter(w => w.length > 2);
+    if (lmsWords.length < 2) return false;
+    
+    const lmsNumeric = this.extractSequenceNumbers(lmsDescLower);
+    const lmsTextWords = lmsWords.filter(w => !this.isNumericToken(w));
+    const lmsSet = new Set(lmsTextWords);
+    
+    const commonWords = new Set(['introduction', 'principles', 'general', 'basic', 'advanced', 
+                                  'course', 'studies', 'for', 'and', 'the', 'of', 'in', 'to', 'miva']);
+    const lmsKeyWords = new Set([...lmsSet].filter(w => !commonWords.has(w)));
+    
+    for (const dbData of dbTitleList) {
+      const dbNormalized = dbData.normalized;
       const dbWords = dbNormalized.split(/\s+/).filter(w => w.length > 2);
       
-      // Skip if either has too few words
-      if (lmsWords.length < 2 || dbWords.length < 2) continue;
+      if (dbWords.length < 2) continue;
       
-      // Separate numeric/roman numerals from regular words
-      const lmsNumeric = this.extractSequenceNumbers(lmsDescLower);
       const dbNumeric = this.extractSequenceNumbers(dbNormalized);
       
-      // Filter out numeric tokens from word lists
-      const lmsTextWords = lmsWords.filter(w => !this.isNumericToken(w));
-      const dbTextWords = dbWords.filter(w => !this.isNumericToken(w));
-      
-      // If both courses have sequence numbers, they must match exactly
-      if (lmsNumeric.length > 0 && dbNumeric.length > 0) {
+      if (lmsNumeric.length > 0 || dbNumeric.length > 0) {
         const lmsNumStr = lmsNumeric.sort().join(',');
         const dbNumStr = dbNumeric.sort().join(',');
         
         if (lmsNumStr !== dbNumStr) {
-          continue; // Different sequence numbers, not a match
+          continue;
         }
       }
       
-      // Calculate word match ratio (using text words only)
-      const lmsSet = new Set(lmsTextWords);
+      const dbTextWords = dbWords.filter(w => !this.isNumericToken(w));
       const dbSet = new Set(dbTextWords);
-      const matchingWords = [...lmsSet].filter(w => dbSet.has(w));
+      const dbKeyWords = new Set([...dbSet].filter(w => !commonWords.has(w)));
       
-      // Use smaller set size as denominator for more lenient matching
-      const minWords = Math.min(lmsSet.size, dbSet.size);
-      const matchRatio = minWords > 0 ? matchingWords.length / minWords : 0;
+      let keyWordMatches = 0;
+      for (const word of lmsKeyWords) {
+        if (dbKeyWords.has(word)) keyWordMatches++;
+      }
       
-      // Dynamic threshold based on word count
-      let requiredRatio = 0.75; // Base threshold
-      let minMatchingWords = 2;
+      let allWordMatches = 0;
+      for (const word of lmsSet) {
+        if (dbSet.has(word)) allWordMatches++;
+      }
       
-      if (minWords >= 4) {
-        // Longer titles can be more flexible
-        requiredRatio = 0.7;
+      const minKeyWords = Math.min(lmsKeyWords.size, dbKeyWords.size);
+      const minAllWords = Math.min(lmsSet.size, dbSet.size);
+      
+      if (minAllWords === 0) continue;
+      
+      const allWordRatio = allWordMatches / minAllWords;
+      const keyWordRatio = minKeyWords > 0 ? keyWordMatches / minKeyWords : 0;
+      
+      let requiredAllRatio = 0.85;
+      let requiredKeyRatio = 0.8;
+      let minMatchingWords = 3;
+      
+      if (minAllWords >= 4) {
+        requiredAllRatio = 0.8;
+        requiredKeyRatio = 0.75;
         minMatchingWords = 3;
-      } else if (minWords === 2) {
-        // Short titles need exact match
-        requiredRatio = 1.0;
+      } else if (minAllWords === 2) {
+        requiredAllRatio = 1.0;
+        requiredKeyRatio = 1.0;
         minMatchingWords = 2;
       }
       
-      if (matchRatio >= requiredRatio && matchingWords.length >= minMatchingWords) {
+      if (allWordRatio >= requiredAllRatio && 
+          (minKeyWords === 0 || keyWordRatio >= requiredKeyRatio) &&
+          allWordMatches >= minMatchingWords) {
+        console.log(`[MivaFocus] ✓ Fuzzy match: "${lmsCourse.title}" -> "${dbData.original}" (ratio: ${allWordRatio.toFixed(2)})`);
         return true;
       }
     }
@@ -815,25 +884,17 @@ class MivaFocusFilter {
   }
   
   extractSequenceNumbers(str) {
-    // Extract all numeric sequences and roman numerals
-    const matches = str.match(/\b\d+\b|\bi{1,3}v?\b|\biv\b|\bv\b|\bvi{1,3}\b|\bix\b|\bx\b/gi) || [];
+    const matches = str.match(this.patterns.numericSequence) || [];
     return matches.map(m => this.normalizeSequenceNumber(m));
   }
   
   normalizeSequenceNumber(token) {
-    // Convert roman numerals to numbers for comparison
-    const romanMap = {
-      'i': 1, 'ii': 2, 'iii': 3, 'iv': 4, 'v': 5,
-      'vi': 6, 'vii': 7, 'viii': 8, 'ix': 9, 'x': 10
-    };
-    
     const lower = token.toLowerCase();
-    return romanMap[lower] !== undefined ? romanMap[lower].toString() : token;
+    return this.romanMap[lower] || token;
   }
   
   isNumericToken(word) {
-    // Check if word is a number or roman numeral
-    return /^\d+$/.test(word) || /^i{1,3}v?$|^iv$|^v$|^vi{1,3}$|^ix$|^x$/i.test(word);
+    return /^\d+$/.test(word) || this.patterns.romanNumeral.test(word);
   }
 
   updateStatsDisplay() {
@@ -849,17 +910,16 @@ class MivaFocusFilter {
     
     this.observer = new MutationObserver((mutations) => {
       const relevantChange = mutations.some(mutation => {
-        if (mutation.type === 'childList') {
-          return Array.from(mutation.addedNodes).some(node => {
-            return node.nodeType === 1 && (
-              node.classList?.contains('dashboard-card') ||
-              node.querySelector?.('.dashboard-card') ||
-              (node.hasAttribute?.('data-region') && 
-               node.getAttribute('data-region').includes('course'))
-            );
-          });
-        }
-        return false;
+        if (mutation.type !== 'childList') return false;
+        
+        return Array.from(mutation.addedNodes).some(node => {
+          return node.nodeType === 1 && (
+            node.classList?.contains('dashboard-card') ||
+            node.querySelector?.('.dashboard-card') ||
+            (node.hasAttribute?.('data-region') && 
+             node.getAttribute('data-region').includes('course'))
+          );
+        });
       });
 
       if (!relevantChange || !this.userSettings.filterEnabled || this.isFiltering) return;
