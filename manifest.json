@@ -38,9 +38,7 @@
     "content_scripts": [
     {
       "matches": [
-        "*://lms.miva.university/*",
-         "*://localhost:*/*",
-         "*://127.0.0.1:*/*"
+        "*://lms.miva.university/*"
         ],
       "js": ["content.js"],
       "css": ["content.css"],
