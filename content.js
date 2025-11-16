@@ -198,7 +198,7 @@ class MivaFocusFilter {
     
     if (!this.fullDatabase?.faculties) return;
     
-    const startTime = performance.now();
+    // const startTime = performance.now();
     let courseCount = 0;
     
     for (const facultyData of Object.values(this.fullDatabase.faculties)) {
@@ -245,8 +245,8 @@ class MivaFocusFilter {
       }
     }
     
-    const elapsed = performance.now() - startTime;
-    console.log(`[MivaFocus] Built optimized lookups for ${courseCount} courses across all departments in ${elapsed.toFixed(2)}ms`);
+    // const elapsed = performance.now() - startTime;
+    // console.log(`[MivaFocus] Built optimized lookups for ${courseCount} courses across all departments in ${elapsed.toFixed(2)}ms`);
     console.log(`[MivaFocus] Total unique course codes: ${this.dbCodesSet.size}`);
   }
 
@@ -267,10 +267,10 @@ class MivaFocusFilter {
 
   getFilteredCourses() {
     const { filterLevel, filterSemester } = this.userSettings;
-    const cacheKey = `${filterLevel || 'all'}_${filterSemester || 'all'}`;
+    const filterCacheKey = `${filterLevel || 'all'}_${filterSemester || 'all'}`;
     
-    if (this.dbTitlesByFilter.has(cacheKey)) {
-      return this.dbTitlesByFilter.get(cacheKey);
+    if (this.dbTitlesByFilter.has(filterCacheKey)) {
+      return this.dbTitlesByFilter.get(filterCacheKey);
     }
     
     const coursesToMatch = [];
@@ -310,7 +310,7 @@ class MivaFocusFilter {
       }
     }
     
-    this.dbTitlesByFilter.set(cacheKey, coursesToMatch);
+    this.dbTitlesByFilter.set(filterCacheKey, coursesToMatch);
     return coursesToMatch;
   }
 
@@ -797,13 +797,13 @@ class MivaFocusFilter {
     
     // Priority 2: EXACT descriptive title match
     if (dbTitleSet.has(lmsDescLower)) {
-      console.log(`[MivaFocus] ✓ Descriptive title match: "${lmsCourse.title}"`);
+      // console.log(`[MivaFocus] ✓ Descriptive title match: "${lmsCourse.title}"`);
       return true;
     }
     
     // Priority 3: EXACT full title match
     if (dbTitleSet.has(lmsFullLower)) {
-      console.log(`[MivaFocus] ✓ Full title match: "${lmsCourse.title}"`);
+      // console.log(`[MivaFocus] ✓ Full title match: "${lmsCourse.title}"`);
       return true;
     }
     
